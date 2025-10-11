@@ -1,4 +1,4 @@
-# Chess N Cheese 🍕♟️
+# DecayCheese 🍕♟️
 
 A modern chess application built with React Native (Expo) for the frontend and Node.js/Express for the backend. Features real-time multiplayer chess games, tournaments, leaderboards, and various game modes.
 
@@ -290,3 +290,4 @@ This project is licensed under the ISC License - see the [LICENSE](LICENSE) file
 ---
 
 **Happy Coding! 🚀**
+
