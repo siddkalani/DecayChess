@@ -6,13 +6,16 @@ export default function Index() {
   const router = useRouter();
   React.useEffect(() => {
     const checkAuth = async () => {
-      const token = await AsyncStorage.getItem('token');
+      const [token, user] = await Promise.all([
+        AsyncStorage.getItem('token'),
+        AsyncStorage.getItem('user'),
+      ]);
       // Add a small delay to ensure Root Layout is mounted
       setTimeout(() => {
-        if (token) {
-          router.replace('/choose');
+        if (token && user) {
+          router.replace('/(main)/choose');
         } else {
-          router.replace('/Home');
+          router.replace('/(auth)/login');
         }
       }, 100);
     };

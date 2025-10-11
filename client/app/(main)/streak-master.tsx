@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, SafeAreaView, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Socket } from "socket.io-client";
 
 import { ClassicChess, CrazyHouseChess, DecayChess } from '../(game)/variants';
@@ -482,4 +483,3 @@ export default function StreakMasterScreen() {
     </SafeAreaView>
   );
 }
-

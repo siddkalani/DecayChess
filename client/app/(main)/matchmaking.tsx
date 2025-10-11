@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Image, Text, View } from "react-native"; // Import Alert
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Socket } from "socket.io-client";
 import ClassicChess from "../(game)/variants/classic";
 import CrazyHouseChess from "../(game)/variants/crazy-house";
@@ -199,18 +200,18 @@ export default function MatchMaking() {
   } else if (loading) {
     // Show loading spinner while waiting for match to be established
     return (
-      <View style={{ flex: 1, backgroundColor: "#23272A", justifyContent: "center", alignItems: "center" }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#23272A", justifyContent: "center", alignItems: "center" }}>
         <ActivityIndicator size="large" color="#00A862" />
         <Text style={{ color: "#b0b3b8", fontSize: 16, marginTop: 12 }}>
           Waiting for match to be established...
         </Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   // Show matchmaking UI
   return (
-    <View style={{ flex: 1, backgroundColor: "#23272A", justifyContent: "center", alignItems: "center", padding: 20 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#23272A", justifyContent: "center", alignItems: "center", padding: 20 }}>
       <Text style={{ color: "#fff", fontSize: 28, fontWeight: "bold", marginBottom: 32 }}>
         Matchmaking...
       </Text>
@@ -277,6 +278,6 @@ export default function MatchMaking() {
           </Text>
         </View>
       )}
-    </View>
+    </SafeAreaView>
   );
 }

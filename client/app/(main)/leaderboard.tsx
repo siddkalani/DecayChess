@@ -3,12 +3,12 @@ import {
   ActivityIndicator,
   Dimensions,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   Text,
   TouchableOpacity,
   View
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchLeaderboardData } from "../lib/APIservice/service";
 import { leaderboardScreenStyles } from "../lib/styles/screens";
 import { Player } from "../lib/types/miscellaneous";
@@ -168,4 +168,3 @@ export default function Leaderboard() {
     </SafeAreaView>
   );
 }
-

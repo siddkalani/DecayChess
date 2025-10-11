@@ -1,7 +1,8 @@
 import { getSocket } from "@/utils/socketManager";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
-import { SafeAreaView, Text, TouchableOpacity, View } from "react-native";
+import { Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const timeControls = [
   { label: "Blitz", description: "3+2 (3 min, 2s increment)" },
