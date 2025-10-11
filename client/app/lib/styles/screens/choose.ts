@@ -80,7 +80,7 @@ export const chooseScreenStyles = StyleSheet.create({
   variantsColumn: {
     flexDirection: 'column',
     width: '100%',
-    padding: 10,
+    // padding: 10,
     gap: 10,
   },
   modalOverlay: {

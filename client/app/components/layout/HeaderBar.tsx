@@ -1,71 +1,48 @@
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import NewsletterIcon from '../ui/NewsletterIcon';
-import UserAvatar from '../ui/UserAvatar';
+import SpeakerIcon from '../ui/SpeakerIcon';
 
 export default function HeaderBar() {
   return (
     <View style={styles.headerBar}>
-      <View style={styles.headerContent}>
-        <View style={styles.leftSection}>
-          <UserAvatar size={32} />
-          <View style={styles.titleContainer}>
-            <Text style={styles.mainText}>CHESS</Text>
-            <Text style={styles.andText}>AND</Text>
-            <Text style={styles.cheeseText}>CHEESE</Text>
-          </View>
-        </View>
-        <TouchableOpacity style={styles.newsletterButton}>
-          <NewsletterIcon size={42} />
-        </TouchableOpacity>
+      <TouchableOpacity style={styles.iconButton} activeOpacity={0.6}>
+        <Ionicons name="person-circle-outline" size={38} color="white" />
+      </TouchableOpacity>
+
+      <View style={styles.brandContainer}>
+        <Text style={styles.brandText}>DecayChess</Text>
       </View>
+
+      <TouchableOpacity style={styles.iconButton} activeOpacity={0.6}>
+        <SpeakerIcon size={40} color="#FFFFFF" strokeWidth={1.4} />
+      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   headerBar: {
-    backgroundColor: "#2C2C2E",
-    paddingTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#2C2C2E',
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingVertical: 14,
   },
-  headerContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  iconButton: {
+    padding: 4,
   },
-  leftSection: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+  brandContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  titleContainer: {
-    alignItems: "center",
-    gap: 0,
-  },
-  mainText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontFamily: 'serif',
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  andText: {
-    color: "#FFFFFF",
-    fontSize: 8,
-    fontFamily: 'serif',
-    fontWeight: "400",
-    marginVertical: 1,
-  },
-  cheeseText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontFamily: 'serif',
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  newsletterButton: {
-    padding: 8,
+  brandText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 0.4,
   },
 });

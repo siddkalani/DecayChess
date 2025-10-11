@@ -1,5 +1,6 @@
 import React from 'react';
-import { SafeAreaView, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomBar from './BottomBar';
 import HeaderBar from './HeaderBar';
 import TopNavBar from './TopNavBar';

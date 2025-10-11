@@ -1,5 +1,7 @@
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import Octicons from '@expo/vector-icons/Octicons';
 import React, { useState } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface TopNavBarProps {
   isChooseScreen: boolean;
@@ -9,6 +11,9 @@ interface TopNavBarProps {
 
 export default function TopNavBar({ isChooseScreen, onSelectChoose, onSelectTournament }: TopNavBarProps) {
   const [hoveredButton, setHoveredButton] = useState<'1v1' | 'tournament' | null>(null);
+  const iconColor = '#FFFFFF';
+  const activeColor = '#4CAF50';
+  const iconSize = 26;
 
   return (
     <View style={styles.topNavBar}>
@@ -22,41 +27,47 @@ export default function TopNavBar({ isChooseScreen, onSelectChoose, onSelectTour
         onPressOut={() => setHoveredButton(null)}
       >
         <View style={styles.iconContainer}>
-            <Image 
-              source={require('../../../assets/1v1.svg')} 
-              style={[
-                styles.navIcon,
-                hoveredButton === '1v1' && styles.hoveredIcon
-              ]}
-            />
-            <Text style={[
+          <MaterialCommunityIcons
+            name="chess-knight"
+            size={iconSize}
+            color={hoveredButton === '1v1' || isChooseScreen ? activeColor : iconColor}
+            style={styles.navIcon}
+          />
+          <Text
+            style={[
               styles.topNavButtonText,
-              hoveredButton === '1v1' && styles.hoveredText
-            ]}>1 vs 1</Text>
-          </View>
-        </TouchableOpacity>
+              (hoveredButton === '1v1' || isChooseScreen) && styles.hoveredText,
+            ]}
+          >
+            1 VS 1
+          </Text>
+        </View>
+      </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[
-            styles.topNavButton, 
-            !isChooseScreen ? styles.activeButton : styles.inactiveButton
-          ]} 
-          onPress={onSelectTournament}
-          onPressIn={() => setHoveredButton('tournament')}
-          onPressOut={() => setHoveredButton(null)}
-        >
-          <View style={styles.iconContainer}>
-            <Image 
-              source={require('../../../assets/cup.svg')} 
-              style={[
-                styles.navIcon,
-                hoveredButton === 'tournament' && styles.hoveredIcon
-              ]} 
-            />
-          <Text style={[
-            styles.topNavButtonText,
-            hoveredButton === 'tournament' && styles.hoveredText
-          ]}>TOURNAMENT</Text>
+      <TouchableOpacity 
+        style={[
+          styles.topNavButton, 
+          !isChooseScreen ? styles.activeButton : styles.inactiveButton
+        ]} 
+        onPress={onSelectTournament}
+        onPressIn={() => setHoveredButton('tournament')}
+        onPressOut={() => setHoveredButton(null)}
+      >
+        <View style={styles.iconContainer}>
+          <Ionicons
+          name="trophy-outline"
+            size={iconSize}
+            color={hoveredButton === 'tournament' || !isChooseScreen ? activeColor : iconColor}
+            style={styles.navIcon}
+          />
+          <Text
+            style={[
+              styles.topNavButtonText,
+              (hoveredButton === 'tournament' || !isChooseScreen) && styles.hoveredText,
+            ]}
+          >
+            TOURNAMENT
+          </Text>
         </View>
       </TouchableOpacity>
     </View>
@@ -90,15 +101,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'column',
-    gap: 6,
+    gap: 0,
   },
   navIcon: {
-    width: 24,
-    height: 24,
-    tintColor: '#FFFFFF',
-  },
-  hoveredIcon: {
-    tintColor: '#4CAF50',
+    marginBottom: 2,
   },
   hoveredText: {
     color: '#4CAF50',

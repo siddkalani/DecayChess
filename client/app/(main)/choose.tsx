@@ -77,15 +77,20 @@ export default function Choose() {
         if (storedUser) {
           const user = JSON.parse(storedUser);
           setUserId(user._id);
+          return;
         }
-        console.log("found user")
+
+        router.replace("/(auth)/login");
+        return;
       } catch (e) {
         console.error("Error fetching user ID:", e);
+        router.replace("/(auth)/login");
+        return;
       }
     };
 
     fetchUserId();
-  }, [])
+  }, [router])
 
   useEffect(() => {
     if (!userId) {
