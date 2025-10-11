@@ -1,0 +1,17 @@
+/* Global styles for the chess app */
+
+/* If using NativeWind/Tailwind CSS, uncomment the following lines: */
+/* @tailwind base; */
+/* @tailwind components; */
+/* @tailwind utilities; */
+
+/* Add any global CSS styles here if needed */
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* Web-specific styles */
+@media (min-width: 768px) {
+  /* Add responsive styles for web platform */
+}
