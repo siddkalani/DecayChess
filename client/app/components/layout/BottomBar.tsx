@@ -1,17 +1,20 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 interface BottomBarProps {
   onProfile: () => void;
   onLogout: () => void;
   onHome: () => void;
-  activeTab?: "home" | "menu";
+  onOffline?: () => void;
+  activeTab?: "home" | "menu" | "offline";
 }
 
-export default function BottomBar({ onProfile, onLogout: _onLogout, onHome, activeTab = "home" }: BottomBarProps) {
+export default function BottomBar({ onProfile, onLogout: _onLogout, onHome, onOffline, activeTab = "home" }: BottomBarProps) {
   const isHomeActive = activeTab === "home";
   const isMenuActive = activeTab === "menu";
+  const isOfflineActive = activeTab === "offline";
   const inactiveStroke = "rgba(255,255,255,0.55)";
   const activeFill = "#FFFFFF";
 
@@ -54,6 +57,16 @@ export default function BottomBar({ onProfile, onLogout: _onLogout, onHome, acti
           </Svg>
           <Text style={[styles.bottomNavButtonText, !isHomeActive && styles.inactiveText]}>
             Home
+          </Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Offline Button */}
+      <TouchableOpacity style={styles.bottomNavButton} onPress={onOffline} disabled={!onOffline}>
+        <View style={styles.iconContainer}>
+          <Ionicons name="game-controller" size={24} color={isOfflineActive ? activeFill : inactiveStroke} style={styles.icon} />
+          <Text style={[styles.bottomNavButtonText, !isOfflineActive && styles.inactiveText]}>
+            Offline
           </Text>
         </View>
       </TouchableOpacity>

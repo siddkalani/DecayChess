@@ -17,32 +17,25 @@ export default function CrazyTimeControl() {
   console.log("CrazyTimeControl userId:", userId)
 
   const handleSubVariantSelect = async () => {
-      if (!userId) return;
-  
-      const tc = timeControls[selected];
-      const subvariant = tc.label === 'Crazy House Standard'? 'standard': 'withTimer';
-      if (!tc) return;
-      setSocketConnecting(true);
-      const socketInstance = getSocket(userId, "matchmaking");
-      console.log("Connecting to socket for Classic matchmaking with time control:", tc.label);
-      console.log("Socket instance:", socketInstance);
-  
-      socketInstance.connect();
-  
-      socketInstance.on("connect", () => {
-        socketInstance.emit("queue:join", { userId, variant: "crazyhouse", subvariant });
-        setSocketConnecting(false);
-        router.push({
-          pathname: "/matchmaking",
-          params: { variant: "crazyhouse", subvariant, userId},
-        });
-      });
-  
-      socketInstance.on("connect_error", () => {
-        alert("Failed to connect to server!");
-        setSocketConnecting(false);
-      });
-    };
+    if (!userId) return;
+
+    const tc = timeControls[selected];
+    if (!tc) return;
+    const subvariant = tc.label === 'Crazy House Standard' ? 'standard' : 'withTimer';
+
+    // Briefly show connecting state and ensure socket exists
+    setSocketConnecting(true);
+    const socketInstance = getSocket(userId, "matchmaking");
+    try {
+      if (!socketInstance.connected) socketInstance.connect();
+    } catch {}
+
+    // Navigate immediately; matchmaking screen will emit queue:join
+    router.push({
+      pathname: "/matchmaking",
+      params: { variant: "crazyhouse", subvariant, userId },
+    });
+  };
 
   const handleGoBack = () => {
     if (router.canGoBack()) {

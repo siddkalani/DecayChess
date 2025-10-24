@@ -10,11 +10,12 @@ interface LayoutProps {
   onProfile: () => void;
   onLogout: () => void;
   onSelectHome: () => void;
+  onSelectOffline?: () => void;
   onSelectTournament?: () => void;
   isChooseScreen?: boolean;
   hideTopNav?: boolean;
   hideNavigation?: boolean; // Added to hide all navigation elements
-  activeBottomTab?: "home" | "menu";
+  activeBottomTab?: "home" | "menu" | "offline";
 }
 
 export default function Layout({ 
@@ -22,6 +23,7 @@ export default function Layout({
   onProfile, 
   onLogout, 
   onSelectHome,
+  onSelectOffline,
   onSelectTournament,
   isChooseScreen = true,
   hideTopNav = false,
@@ -46,6 +48,7 @@ export default function Layout({
           onProfile={onProfile}
           onLogout={onLogout}
           onHome={onSelectHome}
+          onOffline={onSelectOffline}
           activeTab={activeBottomTab}
         />
       )}

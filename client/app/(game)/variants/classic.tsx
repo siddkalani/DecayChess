@@ -7,6 +7,7 @@ import type { Socket } from "socket.io-client"
 import { getSocketInstance } from "../../../utils/socketManager"
 import { getPieceComponent } from "../../components/game/chessPieces"
 import { variantStyles } from "@/app/lib/styles"
+import { BOARD_THEME } from "@/app/lib/constants/boardTheme"
 import { usePreventEarlyExit } from "@/app/lib/hooks/usePreventEarlyExit"
 import { Move, GameState, ChessGameProps} from "../../lib/types/classic"
 
@@ -843,18 +844,23 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     let borderWidth = 0
 
     if (isPossibleMove && piece) {
-      borderColor = "#dc2626"
+      borderColor = BOARD_THEME.highlight.capture
       borderWidth = 2
     } else if (isPossibleMove) {
-      borderColor = "#16a34a"
+      borderColor = BOARD_THEME.highlight.move
       borderWidth = 2
     } else if (isSelected) {
-      borderColor = "#2563eb"
+      borderColor = BOARD_THEME.highlight.selected
       borderWidth = 2
     } else if (isLastMove) {
-      borderColor = "#f59e0b"
+      borderColor = BOARD_THEME.highlight.lastMove
       borderWidth = 1
     }
+
+    const squareBackground = isLight ? BOARD_THEME.lightSquare : BOARD_THEME.darkSquare
+    const coordinateColor = isLight ? BOARD_THEME.darkSquare : BOARD_THEME.lightSquare
+    const captureIndicatorSize = squareSize * BOARD_THEME.captureIndicatorScale
+    const moveDotSize = squareSize * BOARD_THEME.moveDotScale
 
     return (
       <View key={square} style={{ position: "relative" }}>
@@ -864,7 +870,7 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
             {
               width: squareSize,
               height: squareSize,
-              backgroundColor: isLight ? "#F0D9B5" : "#769656",
+              backgroundColor: squareBackground,
               borderWidth,
               borderColor,
             },
@@ -876,7 +882,7 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
               style={[
                 variantStyles.coordinateLabel,
                 variantStyles.rankLabel,
-                { color: isLight ? "#769656" : "#F0D9B5", fontSize: coordinateFontSize },
+                { color: coordinateColor, fontSize: coordinateFontSize },
               ]}
             >
               {rank}
@@ -887,23 +893,23 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
               style={[
                 variantStyles.coordinateLabel,
                 variantStyles.fileLabel,
-                { color: isLight ? "#769656" : "#F0D9B5", fontSize: coordinateFontSize },
+                { color: coordinateColor, fontSize: coordinateFontSize },
               ]}
             >
               {file}
             </Text>
           )}
 
-          {piece && getPieceComponent(piece, squareSize * 0.8)}
+          {piece && getPieceComponent(piece, squareSize * BOARD_THEME.pieceScale)}
 
           {isPossibleMove && !piece && (
             <View
               style={[
                 variantStyles.possibleMoveDot,
                 {
-                  width: squareSize * 0.25,
-                  height: squareSize * 0.25,
-                  borderRadius: squareSize * 0.125,
+                  width: moveDotSize,
+                  height: moveDotSize,
+                  borderRadius: moveDotSize / 2,
                 },
               ]}
             />
@@ -913,9 +919,9 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
               style={[
                 variantStyles.captureIndicator,
                 {
-                  width: squareSize * 0.3,
-                  height: squareSize * 0.3,
-                  borderRadius: squareSize * 0.15,
+                  width: captureIndicatorSize,
+                  height: captureIndicatorSize,
+                  borderRadius: captureIndicatorSize / 2,
                 },
               ]}
             />

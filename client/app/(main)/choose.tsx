@@ -185,6 +185,10 @@ export default function Choose() {
     router.push({ pathname: "/leaderboard" } as any);
   };
 
+  const handleOffline = () => {
+    router.push('/(offline)');
+  };
+
   const handleLogout = async () => {
     try {
       await AsyncStorage.removeItem("user");
@@ -226,6 +230,7 @@ export default function Choose() {
       onProfile={handleProfile}
       onLogout={handleLogout}
       onSelectHome={showChooseScreen}
+      onSelectOffline={handleOffline}
       onSelectTournament={showTournamentScreen}
       isChooseScreen={isChooseScreen}
       hideNavigation={hideNavigation}

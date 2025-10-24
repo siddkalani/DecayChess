@@ -18,32 +18,27 @@ export default function ClassicTimeControl() {
   console.log("ClassicTimeControl userId:", userId)
 
   const handleSubVariantSelect = async () => {
-      if (!userId) return;
-  
-      const tc = timeControls[selected];
-      const subvariant = tc.label.toLowerCase();
-      if (!tc) return;
-      setSocketConnecting(true);
-      const socketInstance = getSocket(userId, "matchmaking");
-      console.log("Connecting to socket for Classic matchmaking with time control:", tc.label);
-      console.log("Socket instance:", socketInstance);
-  
-      socketInstance.connect();
-  
-      socketInstance.on("connect", () => {
-        socketInstance.emit("queue:join", { userId, variant: "classic", subvariant });
-        setSocketConnecting(false);
-        router.push({
-          pathname: "/matchmaking",
-          params: { variant: "classic", subvariant, userId},
-        });
-      });
-  
-      socketInstance.on("connect_error", () => {
-        alert("Failed to connect to server!");
-        setSocketConnecting(false);
-      });
-    };
+    if (!userId) return;
+
+    const tc = timeControls[selected];
+    const subvariant = tc.label.toLowerCase();
+    if (!tc) return;
+
+    // Briefly show connecting state
+    setSocketConnecting(true);
+
+    // Ensure a matchmaking socket exists and start connection if needed
+    const socketInstance = getSocket(userId, "matchmaking");
+    try {
+      if (!socketInstance.connected) socketInstance.connect();
+    } catch {}
+
+    // Navigate immediately; matchmaking screen handles queue:join
+    router.push({
+      pathname: "/matchmaking",
+      params: { variant: "classic", subvariant, userId },
+    });
+  };
 
   const handleGoBack = () => {
     if (router.canGoBack()) {
