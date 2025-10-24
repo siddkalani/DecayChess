@@ -1,8 +1,8 @@
 "use client"
 
 import { useRouter } from "expo-router"
-import { useEffect, useRef, useState } from "react"
-import { Alert, Dimensions, Modal, ScrollView, Text, TouchableOpacity, View } from "react-native"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Alert, Dimensions, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
 import type { Socket } from "socket.io-client"
 import { getSocketInstance } from "../../../utils/socketManager"
 import { getPieceComponent } from "../../components/game/chessPieces"
@@ -31,6 +31,8 @@ export default function ChessGame({ initialGameState, userId, onNavigateToMenu }
     to: string
     options: string[]
   } | null>(null)
+  const [dragState, setDragState] = useState<DragState>(INITIAL_DRAG_STATE)
+  const [dragTargetSquare, setDragTargetSquare] = useState<string | null>(null)
 
   // Game ending state
   const [showGameEndModal, setShowGameEndModal] = useState(false)
@@ -72,6 +74,11 @@ export default function ChessGame({ initialGameState, userId, onNavigateToMenu }
     white: safeTimerValue(initialGameState.timeControl.timers.white, baseTime, increment),
     black: safeTimerValue(initialGameState.timeControl.timers.black, baseTime, increment),
   })
+  const dragStateRef = useRef<DragState>(dragState)
+
+  useEffect(() => {
+    dragStateRef.current = dragState
+  }, [dragState])
 
   // Track the last known server state for accurate local countdown
   const lastServerSync = useRef<{
@@ -100,6 +107,22 @@ const boardSize = screenWidth - horizontalPadding * 2
 const squareSize = boardSize / 8
 const promotionPieceSize = isSmallScreen ? 32 : isTablet ? 40 : 36
 const coordinateFontSize = isSmallScreen ? 8 : 10
+
+type DragState = {
+  active: boolean
+  from: string | null
+  piece: string | null
+  x: number
+  y: number
+}
+
+const INITIAL_DRAG_STATE: DragState = {
+  active: false,
+  from: null,
+  piece: null,
+  x: 0,
+  y: 0,
+}
 
   // Function to handle game ending
   const handleGameEnd = (
@@ -131,37 +154,44 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
       }
     })
 
+    const formatSentence = (text?: string | null) => {
+      if (!text) return ""
+      const trimmed = text.trim()
+      if (!trimmed) return ""
+      return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+    }
+
     let playerWon: boolean | null = null
     let message = ""
 
     if (result === "checkmate") {
       if (winner === playerColor) {
         playerWon = true
-        message = "🎉 VICTORY! 🎉\nCheckmate! You won the game!"
+        message = "Checkmate! You won the game!"
       } else if (winner && winner !== playerColor) {
         playerWon = false
-        message = "😔 DEFEAT 😔\nCheckmate! You lost the game."
+        message = "Checkmate! You lost the game."
       } else {
         playerWon = null
-        message = "🏁 GAME OVER 🏁\nCheckmate occurred"
+        message = "Checkmate occurred."
       }
     } else if (result === "timeout") {
       if (winner === playerColor) {
         playerWon = true
-        message = "🎉 VICTORY! 🎉\nYour opponent ran out of time!"
+        message = "Your opponent ran out of time."
       } else if (winner && winner !== playerColor) {
         playerWon = false
-        message = "😔 DEFEAT 😔\nYou ran out of time!"
+        message = "You ran out of time."
       } else {
         playerWon = null
-        message = "🏁 GAME OVER 🏁\nTime expired"
+        message = "Time expired."
       }
     } else if (result === "draw") {
       playerWon = null
-      message = `⚖️ DRAW ⚖️\n${endReason || "Game ended in a draw"}`
+      message = endReason ? formatSentence(endReason) : "Game ended in a draw."
     } else {
       playerWon = null
-      message = `🏁 GAME OVER 🏁\n${result}`
+      message = formatSentence(endReason) || formatSentence(result) || "The game has ended."
     }
 
     setIsWinner(playerWon)
@@ -785,6 +815,145 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     }
   }
 
+  const getSquareFromCoords = useCallback(
+    (x: number, y: number): string | null => {
+      if (x < 0 || y < 0 || x > boardSize || y > boardSize) return null
+      const files = boardFlipped ? [...FILES].reverse() : FILES
+      const ranks = boardFlipped ? [...RANKS].reverse() : RANKS
+      const fileIndex = Math.floor(x / squareSize)
+      const rankIndex = Math.floor(y / squareSize)
+      if (fileIndex < 0 || fileIndex >= files.length || rankIndex < 0 || rankIndex >= ranks.length) return null
+      const file = files[fileIndex]
+      const rank = ranks[rankIndex]
+      return file && rank ? `${file}${rank}` : null
+    },
+    [boardFlipped],
+  )
+
+  const canDragSquare = useCallback(
+    (square: string | null): boolean => {
+      if (!square) return false
+      if (!isMyTurn || gameState.status !== "active") return false
+      const piece = getPieceAt(square)
+      if (!piece) return false
+      return isPieceOwnedByPlayer(piece, playerColor)
+    },
+    [isMyTurn, gameState.status, getPieceAt, isPieceOwnedByPlayer, playerColor],
+  )
+
+  const restoreSelectionToOrigin = useCallback(() => {
+    const originSquare = dragStateRef.current.from
+    if (originSquare) {
+      setSelectedSquare(originSquare)
+      setDragTargetSquare(originSquare)
+    } else {
+      setSelectedSquare(null)
+      setPossibleMoves([])
+    }
+  }, [])
+
+  const startDrag = useCallback(
+    (square: string, piece: string, x: number, y: number) => {
+      const boundedX = Math.min(Math.max(x, 0), boardSize)
+      const boundedY = Math.min(Math.max(y, 0), boardSize)
+      setDragState({
+        active: true,
+        from: square,
+        piece,
+        x: boundedX,
+        y: boundedY,
+      })
+      setDragTargetSquare(square)
+      setSelectedSquare(square)
+      requestPossibleMoves(square)
+    },
+    [requestPossibleMoves],
+  )
+
+  const finishDragMove = useCallback(
+    (targetSquare: string | null) => {
+      const originSquare = dragStateRef.current.from
+      setDragState(INITIAL_DRAG_STATE)
+      setDragTargetSquare(null)
+
+      if (!originSquare) {
+        setSelectedSquare(null)
+        setPossibleMoves([])
+        return
+      }
+
+      if (!targetSquare || originSquare === targetSquare) {
+        restoreSelectionToOrigin()
+        return
+      }
+
+      if (possibleMoves.includes(targetSquare)) {
+        const piece = getPieceAt(originSquare)
+        const isPromotion =
+          piece &&
+          ((piece.toLowerCase() === "p" && playerColor === "white" && targetSquare[1] === "8") ||
+            (piece.toLowerCase() === "p" && playerColor === "black" && targetSquare[1] === "1"))
+
+        if (isPromotion) {
+          const options = ["q", "r", "b", "n"]
+          setPromotionModal({ visible: true, from: originSquare, to: targetSquare, options })
+          return
+        }
+
+        makeMove({ from: originSquare, to: targetSquare })
+        setSelectedSquare(null)
+        setPossibleMoves([])
+      } else {
+        restoreSelectionToOrigin()
+      }
+    },
+    [getPieceAt, playerColor, makeMove, possibleMoves, restoreSelectionToOrigin],
+  )
+
+  const abortDrag = useCallback(() => {
+    setDragState(INITIAL_DRAG_STATE)
+    setDragTargetSquare(null)
+    restoreSelectionToOrigin()
+  }, [restoreSelectionToOrigin])
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (evt, gestureState) => {
+          if (Math.abs(gestureState.dx) < 4 && Math.abs(gestureState.dy) < 4) return false
+          const square = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
+          return canDragSquare(square)
+        },
+        onPanResponderGrant: (evt) => {
+          const { locationX, locationY } = evt.nativeEvent
+          const square = getSquareFromCoords(locationX, locationY)
+          if (!square) return
+          const piece = getPieceAt(square)
+          if (piece && canDragSquare(square)) {
+            startDrag(square, piece, locationX, locationY)
+          }
+        },
+        onPanResponderMove: (evt) => {
+          if (!dragStateRef.current.active) return
+          const { locationX, locationY } = evt.nativeEvent
+          const boundedX = Math.min(Math.max(locationX, 0), boardSize)
+          const boundedY = Math.min(Math.max(locationY, 0), boardSize)
+          setDragState((prev) => (prev.active ? { ...prev, x: boundedX, y: boundedY } : prev))
+          const hoverSquare = getSquareFromCoords(boundedX, boundedY)
+          setDragTargetSquare(hoverSquare)
+        },
+        onPanResponderRelease: (evt) => {
+          const targetSquare = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
+          finishDragMove(targetSquare)
+        },
+        onPanResponderTerminate: () => {
+          abortDrag()
+        },
+      }),
+    [abortDrag, canDragSquare, finishDragMove, getPieceAt, getSquareFromCoords, startDrag, boardSize],
+  )
+
   const formatTime = (milliseconds: number): string => {
     if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "0:00"
     const totalSeconds = Math.floor(milliseconds / 1000)
@@ -822,6 +991,8 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     const isSelected = selectedSquare === square
     const isPossibleMove = possibleMoves.includes(square)
     const piece = getPieceAt(square)
+    const isDragOrigin = dragState.active && dragState.from === square
+    const pieceToRender = isDragOrigin ? null : piece
 
     let lastMoveObj = null
     if (gameState.board && Array.isArray(gameState.board.moveHistory) && gameState.board.moveHistory.length > 0) {
@@ -843,7 +1014,10 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     let borderColor = "transparent"
     let borderWidth = 0
 
-    if (isPossibleMove && piece) {
+    if (dragState.active && dragTargetSquare === square) {
+      borderColor = BOARD_THEME.highlight.selected
+      borderWidth = 2
+    } else if (isPossibleMove && piece) {
       borderColor = BOARD_THEME.highlight.capture
       borderWidth = 2
     } else if (isPossibleMove) {
@@ -900,7 +1074,7 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
             </Text>
           )}
 
-          {piece && getPieceComponent(piece, squareSize * BOARD_THEME.pieceScale)}
+          {pieceToRender && getPieceComponent(pieceToRender, squareSize * BOARD_THEME.pieceScale)}
 
           {isPossibleMove && !piece && (
             <View
@@ -937,12 +1111,30 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
 
     return (
       <View style={variantStyles.boardContainer}>
-        <View style={variantStyles.board}>
-          {ranks.map((rank) => (
-            <View key={rank} style={variantStyles.row}>
-              {files.map((file) => renderSquare(file, rank))}
+        <View style={{ width: boardSize, height: boardSize, position: "relative" }} {...panResponder.panHandlers}>
+          <View style={variantStyles.board}>
+            {ranks.map((rank) => (
+              <View key={rank} style={variantStyles.row}>
+                {files.map((file) => renderSquare(file, rank))}
+              </View>
+            ))}
+          </View>
+          {dragState.active && dragState.piece && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: dragState.x - squareSize / 2,
+                top: dragState.y - squareSize / 2,
+                width: squareSize,
+                height: squareSize,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              {getPieceComponent(dragState.piece, squareSize * BOARD_THEME.pieceScale)}
             </View>
-          ))}
+          )}
         </View>
       </View>
     )
@@ -1026,8 +1218,11 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     )
   }
 
-  const topPlayerColor = boardFlipped ? playerColor : playerColor === "white" ? "black" : "white"
-  const bottomPlayerColor = boardFlipped ? (playerColor === "white" ? "black" : "white") : playerColor
+  // Fix player positioning: each player should see themselves at the bottom
+  // When board is flipped (player is black), black player should be on bottom
+  // When board is not flipped (player is white), white player should be on bottom
+  const topPlayerColor = boardFlipped ? "white" : "black"  // Opponent is always on top
+  const bottomPlayerColor = boardFlipped ? "black" : "white"  // Current player is always on bottom
 
   return (
     <View style={variantStyles.container}>

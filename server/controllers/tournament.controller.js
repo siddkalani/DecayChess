@@ -42,7 +42,7 @@ function getRandomVariantAndSubvariant() {
         },
         { 
             variant: 'classic', 
-            subvariants: ['blitz', 'bullet', 'standard'] 
+            subvariants: ['bullet', 'standard'] 
         }
     ];
 

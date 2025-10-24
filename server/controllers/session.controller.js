@@ -5,7 +5,6 @@ import redisClient, {
   SESSION_TIMEOUT 
 } from '../config/redis.config.js';
 import { createInitialState as createStandardInitialState, convertBigIntToNumber } from '../validations/classic/standard.js';
-import { createInitialState as createBlitzInitialState } from '../validations/classic/blitz.js';
 import { createInitialState as createBulletInitialState} from '../validations/classic/bullet.js';
 import { createInitialState as createSixPointerInitialState, generateRandomBalancedPosition } from '../validations/sixPointer.js';
 import { createDecayInitialState } from '../validations/decay.js';
@@ -24,12 +23,6 @@ const GAME_VARIANTS = {
         initialFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         timeControl: { base: 10 * 60 * 1000, increment: 0 }, // 10 minutes
         description: 'Standard FIDE chess rules with classical time control'
-      },
-      blitz: {
-        name: 'blitz',
-        initialFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-        timeControl: { base: 3 * 60 * 1000, increment: 2000 }, // 3+2
-        description: 'Fast-paced chess with 3 minutes base + 2 second increment'
       },
       bullet: {
         name: 'bullet',
@@ -251,89 +244,6 @@ function createInitialGameState(variant, subvariant, whitePlayer, blackPlayer) {
       rules: getChessRules(variant, subvariant),
       metadata: {
         source: null, // Don't set a default, let it be set by createGameSession
-        rated: true,
-        spectators: [],
-        allowSpectators: true,
-        drawOffers: {
-          white: false,
-          black: false
-        },
-        resignations: {
-          white: false,
-          black: false
-        },
-        premoves: {
-          white: null,
-          black: null
-        }
-      }
-    };
-  } else if (variant === 'classic' && subvariant === 'blitz') {
-    const now = Date.now();
-    const state = createBlitzInitialState()
-
-    return {
-      board: state,
-      sessionId: null,
-      variantName: GAME_VARIANTS[variant].name,
-      subvariantName: GAME_VARIANTS[variant].subvariants[subvariant].name,
-      description: GAME_VARIANTS[variant].subvariants[subvariant].description,
-      players: {
-        white: {
-          userId: whitePlayer.userId,
-          username: whitePlayer.username,
-          rating: whitePlayer.rating,
-          avatar: whitePlayer.avatar || null,
-          title: whitePlayer.title || null
-        },
-        black: {
-          userId: blackPlayer.userId,
-          username: blackPlayer.username,
-          rating: blackPlayer.rating,
-          avatar: blackPlayer.avatar || null,
-          title: blackPlayer.title || null
-        }
-      },
-      timeControl: {
-        type: getTimeControlType(timeControl),
-        baseTime: timeControl.base,
-        increment: timeControl.increment,
-        timers: {
-          white: timeControl.base,
-          black: timeControl.base
-        },
-        timeSpent: {
-          white: [],
-          black: []
-        },
-        flagged: {
-          white: false,
-          black: false
-        }
-      },
-      status: 'active',
-      result: CHESS_CONSTANTS.GAME_RESULTS.ONGOING,
-      resultReason: null,
-      winner: null,
-      moves: [],
-      moveCount: 0,
-      lastMove: null,
-      gameState: {
-        check: false,
-        checkmate: false,
-        stalemate: false,
-        insufficientMaterial: false,
-        threefoldRepetition: false,
-        fiftyMoveRule: false
-      },
-      positionHistory: [gameConfig.initialFen],
-      createdAt: Number(now),
-      lastActivity: Number(now),
-      startedAt: Number(now),
-      endedAt: null,
-      rules: getChessRules(variant, subvariant),
-      metadata: {
-        source: 'matchmaking',
         rated: true,
         spectators: [],
         allowSpectators: true,
@@ -862,7 +772,7 @@ function getTimeControlType(timeControl) {
   if (baseMinutes <= 1 || (baseMinutes <= 1 && incrementSeconds == 0)) {
     return 'bullet';
   } else if (baseMinutes <= 3 || (baseMinutes <= 3 && incrementSeconds <= 2)) {
-    return 'blitz';
+    return 'rapid';
   } else {
     return 'standard';
   }
@@ -949,21 +859,6 @@ function getChessRules(variant, subvariant) {
               ...baseRules.online,
               autoFlag: true,
               quickDraw: true // Faster draw claim processing
-            }
-          };
-          
-        case 'blitz':
-          return {
-            ...baseRules,
-            timeControl: {
-              ...baseRules.timeControl,
-              increment: true, // 3+2 format
-              flagFall: true,
-              premove: true
-            },
-            online: {
-              ...baseRules.online,
-              autoFlag: true
             }
           };
           

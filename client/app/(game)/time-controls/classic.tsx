@@ -5,7 +5,6 @@ import { Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const timeControls = [
-  { label: "Blitz", description: "3+2 (3 min, 2s increment)" },
   { label: "Bullet", description: "1+0 (1 min, no increment)" },
   { label: "Standard", description: "10 mins" },
 ];

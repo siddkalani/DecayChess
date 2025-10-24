@@ -17,11 +17,27 @@ import {
 import { createTournament, getActiveTournamentDetails, joinTournament, leaveTournament } from "../controllers/tournament.controller.js";
 import tournamentModel from "../models/tournament.model.js";
 import UserModel from "../models/User.model.js";
+import { convertBigIntToNumber } from "../validations/classic/standard.js";
 
 dotenv.config();
 
 // In-memory mapping for socketId <-> userId
 const socketIdToUserId = {};
+
+const serializeForSocket = (payload) => {
+  try {
+    if (payload === undefined) return payload
+    return convertBigIntToNumber(payload)
+  } catch (error) {
+    console.error("[Websocket] Failed to serialize payload", error)
+    return payload
+  }
+}
+
+const emitGameEvent = (emitter, event, payload) => {
+  const safePayload = serializeForSocket(payload)
+  emitter.emit(event, safePayload)
+}
 
 const websocketRoutes = (io) => {
   const matchmakingNamespace = io.of("/matchmaking");
@@ -212,9 +228,11 @@ const websocketRoutes = (io) => {
         const result = await makeMove({ sessionId, userId, move, timestamp, variant, subvariant })
         if (result && result.type === "game:warning") {
           console.warn("Game warning:", result.message)
-          gameNamespace
-            .to(sessionId)
-            .emit("game:warning", { message: result.message, move: result.move, gameState: result.gameState })
+          emitGameEvent(gameNamespace.to(sessionId), "game:warning", {
+            message: result.message,
+            move: result.move,
+            gameState: result.gameState,
+          })
           return
         }
         
@@ -223,17 +241,17 @@ const websocketRoutes = (io) => {
           console.log("Timeout penalty applied:", result.message)
           
           // Emit timeout penalty notification
-          gameNamespace.to(sessionId).emit("game:warning", { 
-            message: result.message, 
+          emitGameEvent(gameNamespace.to(sessionId), "game:warning", {
+            message: result.message,
             timeoutPenalty: result.timeoutPenalty,
-            gameState: result.gameState 
+            gameState: result.gameState,
           })
           
           // Emit game state update to refresh UI
-          gameNamespace.to(sessionId).emit("game:gameState", { gameState: result.gameState })
+          emitGameEvent(gameNamespace.to(sessionId), "game:gameState", { gameState: result.gameState })
           
           // Emit timer update to show new turn and reset timers
-          gameNamespace.to(sessionId).emit("game:timer", {
+          emitGameEvent(gameNamespace.to(sessionId), "game:timer", {
             white: result.gameState.board.whiteTime,
             black: result.gameState.board.blackTime,
             activeColor: result.gameState.board.activeColor,
@@ -245,11 +263,11 @@ const websocketRoutes = (io) => {
         
         const { move: moveObj, gameState } = result
         // Always emit all game events to the whole session
-        gameNamespace.to(sessionId).emit("game:move", { move: moveObj, gameState })
+        emitGameEvent(gameNamespace.to(sessionId), "game:move", { move: moveObj, gameState })
 
         // --- MODIFICATION START ---
         // Emit main game timers from gameState.board
-        gameNamespace.to(sessionId).emit("game:timer", {
+        emitGameEvent(gameNamespace.to(sessionId), "game:timer", {
           white: gameState.board.whiteTime,
           black: gameState.board.blackTime,
           // For Crazyhouse withTimer, pass dropTimers if available
@@ -307,7 +325,7 @@ const websocketRoutes = (io) => {
 
             if (!updateWinner) {
               console.error(`Failed to update user points for winner ${winnerId}`)
-              gameNamespace.to(sessionId).emit("game:error", { message: "Failed to update user points." })
+              emitGameEvent(gameNamespace.to(sessionId), "game:error", { message: "Failed to update user points." })
             }
 
             const updateLooser = await UserModel.findByIdAndUpdate(
@@ -320,15 +338,15 @@ const websocketRoutes = (io) => {
 
             if (!updateLooser) {
               console.error(`Failed to update user points for looser ${looserId}`)
-              gameNamespace.to(sessionId).emit("game:error", { message: "Failed to update user points." })
+              emitGameEvent(gameNamespace.to(sessionId), "game:error", { message: "Failed to update user points." })
             }
             console.log(`User ${winnerId} points updated by ${incPoint} points.`)
           }
 
-          gameNamespace.to(sessionId).emit("game:end", { gameState })
+          emitGameEvent(gameNamespace.to(sessionId), "game:end", { gameState })
         }
       } catch (err) {
-        gameNamespace.to(sessionId).emit("game:error", { message: err.message })
+        emitGameEvent(gameNamespace.to(sessionId), "game:error", { message: err.message })
       }
     })
 
@@ -340,7 +358,7 @@ const websocketRoutes = (io) => {
         const result = await applyTimeoutPenalty({ sessionId, userId, timestamp, variant, subvariant })
         if (result && result.validationResult) {
           // Emit a game warning similar to previous behavior
-          gameNamespace.to(sessionId).emit("game:warning", {
+          emitGameEvent(gameNamespace.to(sessionId), "game:warning", {
             message: result.validationResult.reason,
             timeoutPenalty: result.validationResult.timeoutPenalty,
             move: result.move,
@@ -349,28 +367,28 @@ const websocketRoutes = (io) => {
           })
 
           // Emit a game:move-style update so clients update UI (move may be synthetic timeout move)
-          gameNamespace.to(sessionId).emit("game:move", { move: result.move, gameState: result.gameState })
+          emitGameEvent(gameNamespace.to(sessionId), "game:move", { move: result.move, gameState: result.gameState })
 
           // Also emit timers
-          gameNamespace.to(sessionId).emit("game:timer", {
+          emitGameEvent(gameNamespace.to(sessionId), "game:timer", {
             white: result.gameState.board.whiteTime,
             black: result.gameState.board.blackTime,
             activeColor: result.gameState.board.activeColor,
           })
 
           // Also emit entire gameState so clients refresh all derived fields
-          gameNamespace.to(sessionId).emit("game:gameState", { gameState: result.gameState })
+          emitGameEvent(gameNamespace.to(sessionId), "game:gameState", { gameState: result.gameState })
 
           console.log(
             `[TIMEOUT PENALTY] Successfully applied penalty for ${result.validationResult.timeoutPenalty?.newActiveColor}`,
           )
         } else if (result && result.type === "game:error") {
-          socket.emit("game:error", { message: result.message })
+          emitGameEvent(socket, "game:error", { message: result.message })
           console.log(`[TIMEOUT PENALTY] Error: ${result.message}`)
         }
       } catch (err) {
         console.error("Error applying timeout penalty:", err)
-        socket.emit("game:error", { message: err.message || "Failed to apply timeout penalty" })
+        emitGameEvent(socket, "game:error", { message: err.message || "Failed to apply timeout penalty" })
       }
     })
 
@@ -378,9 +396,9 @@ const websocketRoutes = (io) => {
     socket.on("game:getPossibleMoves", async ({ square }) => {
       try {
         const moves = await getPossibleMoves({ sessionId, square, variant, subvariant })
-        gameNamespace.to(sessionId).emit("game:possibleMoves", { square, moves })
+        emitGameEvent(gameNamespace.to(sessionId), "game:possibleMoves", { square, moves })
       } catch (err) {
-        gameNamespace.to(sessionId).emit("game:error", { message: err.message })
+        emitGameEvent(gameNamespace.to(sessionId), "game:error", { message: err.message })
       }
     })
 
@@ -388,9 +406,9 @@ const websocketRoutes = (io) => {
     socket.on("game:resign", async () => {
       try {
         const { gameState } = await resign({ sessionId, userId, variant, subvariant })
-        gameNamespace.to(sessionId).emit("game:end", { gameState })
+        emitGameEvent(gameNamespace.to(sessionId), "game:end", { gameState })
       } catch (err) {
-        gameNamespace.to(sessionId).emit("game:error", { message: err.message })
+        emitGameEvent(gameNamespace.to(sessionId), "game:error", { message: err.message })
       }
     })
 
@@ -398,9 +416,9 @@ const websocketRoutes = (io) => {
     socket.on("game:offerDraw", async () => {
       try {
         const { gameState } = await offerDraw({ sessionId, userId, variant, subvariant })
-        gameNamespace.to(sessionId).emit("game:gameState", { gameState })
+        emitGameEvent(gameNamespace.to(sessionId), "game:gameState", { gameState })
       } catch (err) {
-        gameNamespace.to(sessionId).emit("game:error", { message: err.message })
+        emitGameEvent(gameNamespace.to(sessionId), "game:error", { message: err.message })
       }
     })
 
@@ -408,9 +426,9 @@ const websocketRoutes = (io) => {
     socket.on("game:acceptDraw", async () => {
       try {
         const { gameState } = await acceptDraw({ sessionId, userId, variant, subvariant })
-        gameNamespace.to(sessionId).emit("game:end", { gameState })
+        emitGameEvent(gameNamespace.to(sessionId), "game:end", { gameState })
       } catch (err) {
-        gameNamespace.to(sessionId).emit("game:error", { message: err.message })
+        emitGameEvent(gameNamespace.to(sessionId), "game:error", { message: err.message })
       }
     })
 
@@ -418,9 +436,9 @@ const websocketRoutes = (io) => {
     socket.on("game:declineDraw", async () => {
       try {
         const { gameState } = await declineDraw({ sessionId, userId, variant, subvariant })
-        gameNamespace.to(sessionId).emit("game:gameState", { gameState })
+        emitGameEvent(gameNamespace.to(sessionId), "game:gameState", { gameState })
       } catch (err) {
-        gameNamespace.to(sessionId).emit("game:error", { message: err.message })
+        emitGameEvent(gameNamespace.to(sessionId), "game:error", { message: err.message })
       }
     })
   })

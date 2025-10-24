@@ -19,7 +19,6 @@ export const REGULAR_QUEUE_KEYS_BY_VARIANT = {
     'crazyhouse': 'queue:crazyhouse',
     'sixpointer': 'queue:sixpointer',
     'decay': 'queue:decay',
-    'classic:blitz': 'queue:classic:blitz',
     'classic:bullet': 'queue:classic:bullet',
     'classic:standard': 'queue:classic:standard',
 };
@@ -28,7 +27,7 @@ export const REGULAR_USER_DATA_KEY = (userId) => `queueuser:${userId}`;
 
 /**
  * Retrieve the current live player counts for each queue variant.
- * @returns {Promise<{crazyhouse:number,sixpointer:number,decay:number,classic:number,classicBreakdown:{blitz:number,bullet:number,standard:number}}>} queue snapshot
+ * @returns {Promise<{crazyhouse:number,sixpointer:number,decay:number,classic:number,classicBreakdown:{bullet:number,standard:number}}>} queue snapshot
  */
 export async function getRegularQueueCounts() {
     const queueEntries = await Promise.all(
@@ -44,7 +43,6 @@ export async function getRegularQueueCounts() {
     );
 
     const queueMap = Object.fromEntries(queueEntries);
-    const blitz = queueMap['classic:blitz'] ?? 0;
     const bullet = queueMap['classic:bullet'] ?? 0;
     const standard = queueMap['classic:standard'] ?? 0;
 
@@ -52,9 +50,8 @@ export async function getRegularQueueCounts() {
         crazyhouse: queueMap['crazyhouse'] ?? 0,
         sixpointer: queueMap['sixpointer'] ?? 0,
         decay: queueMap['decay'] ?? 0,
-        classic: blitz + bullet + standard,
+        classic: bullet + standard,
         classicBreakdown: {
-            blitz,
             bullet,
             standard,
         },

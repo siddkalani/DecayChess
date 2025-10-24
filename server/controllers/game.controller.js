@@ -1,8 +1,4 @@
 import {
-  getLegalMoves as legalMovesBlitz,
-  validateAndApplyMove as validateBlitz,
-} from "../validations/classic/blitz.js"
-import {
   getLegalMoves as legalMovesBullet,
   validateAndApplyMove as validateBullet,
 } from "../validations/classic/bullet.js"
@@ -162,9 +158,6 @@ export async function makeMove({ sessionId, userId, move, timestamp, variant, su
     if (subvariant === "standard") {
       validateFunc = validateStandard
       legalMovesFunc = legalMovesStandard
-    } else if (subvariant === "blitz") {
-      validateFunc = validateBlitz
-      legalMovesFunc = legalMovesBlitz
     } else if (subvariant === "bullet") {
       validateFunc = validateBullet
       legalMovesFunc = legalMovesBullet
@@ -307,9 +300,6 @@ export async function makeMove({ sessionId, userId, move, timestamp, variant, su
     gameState.board.timers[activeColor].lastUpdateTime = now
 
     console.log(`Resetting timer for ${opponentColor} to 30 seconds`)
-  } else if (variant === "classic" && subvariant === "blitz") {
-    const activeColor = gameState.board.activeColor
-    gameState.board[`${activeColor}Time`] += 2000
   }
   // Note: For decay variant, timer increment is handled inside the decay validator
 
@@ -530,8 +520,6 @@ export async function getPossibleMoves({ sessionId, square, variant, subvariant 
   if (variant === "classic") {
     if (subvariant === "standard") {
       legalMovesFunc = legalMovesStandard
-    } else if (subvariant === "blitz") {
-      legalMovesFunc = legalMovesBlitz
     } else if (subvariant === "bullet") {
       legalMovesFunc = legalMovesBullet
     }

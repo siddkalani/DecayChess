@@ -210,14 +210,7 @@ export default function CrazyhouseOffline() {
     parts[1] = parts[1] === 'w' ? 'b' : 'w'
     newGame.load(parts.join(' '))
 
-    // Update timers: deduct elapsed, add increment to mover
-    const now = Date.now()
-    const elapsed = now - turnStartRef.current
-    setTimers((prev) => {
-      const next = { ...prev }
-      next[activeColor] = Math.max(0, next[activeColor] - elapsed) + increment
-      return next
-    })
+    // Offline simple mode: do not adjust time on drop; timers tick only during turn via interval
 
     // Update pockets (remove first), start next timer
     dropTimersRef.current[activeColor].delete(first.id)
@@ -291,15 +284,7 @@ export default function CrazyhouseOffline() {
 
   const applyMove = (m: { from: string; to: string; promotion?: string }) => {
     if (gameEnded) return
-    const now = Date.now()
-    const elapsed = now - turnStartRef.current
-
-    // Deduct elapsed from mover
-    setTimers((prev) => {
-      const next = { ...prev }
-      next[activeColor] = Math.max(0, next[activeColor] - elapsed)
-      return next
-    })
+    // Offline simple mode: do not adjust time on move; timers tick only during turn via interval
 
     const newGame = new Chess(game.fen())
     const targetPiece = newGame.get(m.to)
@@ -325,10 +310,7 @@ export default function CrazyhouseOffline() {
       })
     }
 
-    // Add increment post-move
-    if (increment > 0) {
-      setTimers((prev) => ({ ...prev, [activeColor]: prev[activeColor] + increment }))
-    }
+    // Increment applied above together with elapsed deduction
 
     // Update histories
     setCaptured((prev) => prev) // we could track

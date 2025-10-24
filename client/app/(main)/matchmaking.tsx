@@ -54,13 +54,21 @@ export default function MatchMaking() {
 
   useEffect(() => {
     if (!socket || !userId || !variant) { // Ensure essential params are present
-        console.log("Waiting for socket or params to be ready for queue join.");
-        return;
+      console.log("Waiting for socket or params to be ready for queue join.");
+      return;
     }
 
-    // Emit join queue event only once when component mounts with valid params
-    console.log(`Emitting queue:join for variant: ${variant}, subvariant: ${subvariant || 'N/A'}`);
-    socket.emit("queue:join", { variant, subvariant });
+    const joinQueue = () => {
+      console.log(`Emitting queue:join for variant: ${variant}, subvariant: ${subvariant || 'N/A'}`);
+      socket.emit("queue:join", { variant, subvariant });
+    };
+
+    if (socket.connected) {
+      joinQueue();
+    } else {
+      socket.once("connect", joinQueue);
+      try { socket.connect(); } catch {}
+    }
 
     socket.on("queue:matched", (response: {
       opponent: { userId: string; name: string };
@@ -134,6 +142,9 @@ export default function MatchMaking() {
     });
 
 
+    return () => {
+      socket.off("connect", joinQueue);
+    };
   }, [socket, userId, variant, subvariant, router]); // Add dependencies
 
   useEffect(() => {

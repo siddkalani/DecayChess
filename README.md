@@ -173,7 +173,7 @@ chessNCheese/
 
 ### Game Modes
 - **Classic Chess** - Traditional chess rules
-- **Time Controls** - Bullet, Blitz, Rapid formats
+- **Time Controls** - Bullet, Rapid formats
 - **Tournament Mode** - Competitive tournaments
 - **Variants** - Different chess variants
 

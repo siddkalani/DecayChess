@@ -9,6 +9,8 @@ interface VariantCardProps {
   onPlay: () => void;
   closingTime?: string;
   disabled: boolean;
+  subtitle?: string;
+  rulesItems?: string[];
 }
 
 export default function VariantCard({ 
@@ -17,7 +19,9 @@ export default function VariantCard({
   description, 
   onPlay,
   closingTime,
-  disabled
+  disabled,
+  subtitle,
+  rulesItems = [],
 }: VariantCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
@@ -55,7 +59,7 @@ export default function VariantCard({
 
   const maxHeight = expandAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 200], // Adjust this value based on your content
+    outputRange: [0, 400], // Allow more content when expanded
   });
 
   return (
@@ -64,6 +68,7 @@ export default function VariantCard({
         <View style={styles.header}>
           <View style={styles.titleSection}>
             <Text style={styles.variantName}>{variantName}</Text>
+            {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
             {closingTime && (
               <Text style={styles.closingTime}>Closing at {closingTime}</Text>
             )}
@@ -112,6 +117,17 @@ export default function VariantCard({
 
           <Animated.View style={[styles.description, { maxHeight }]}>
             <Text style={styles.descriptionText}>{description}</Text>
+            {rulesItems.length > 0 && (
+              <View style={styles.rulesContainer}>
+                <Text style={styles.rulesHeading}>Rules</Text>
+                {rulesItems.map((rule, idx) => (
+                  <View key={idx} style={styles.ruleItem}>
+                    <View style={styles.ruleBullet} />
+                    <Text style={styles.ruleText}>{rule}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </Animated.View>
         </View>
       </View>
@@ -145,6 +161,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 28,
     fontWeight: '600',
+  },
+  subtitle: {
+    color: '#B0B0B0',
+    fontSize: 12,
+    marginTop: 4,
   },
   closingTime: {
     color: '#FFA500',
@@ -191,6 +212,36 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     padding: 16,
     paddingTop: 0,
+  },
+  rulesContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  rulesHeading: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  ruleItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+  ruleBullet: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#00A862',
+    marginTop: 7,
+    marginRight: 8,
+  },
+  ruleText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
   },
   playButton: {
     flexDirection: 'row',

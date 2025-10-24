@@ -33,6 +33,7 @@ export default function MainLayout() {
       <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
       <Stack.Screen name="profile" options={{ headerShown: false }} />
       <Stack.Screen name="streak-master" options={{ headerShown: false }} />
+      <Stack.Screen name="newsletter" options={{ headerShown: false }} />
     </Stack>
   );
 }

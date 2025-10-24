@@ -1,13 +1,14 @@
 "use client"
 
 import { useRouter } from "expo-router"
-import { useEffect, useRef, useState } from "react"
-import { Alert, Dimensions, Modal, ScrollView, Text, TouchableOpacity, View } from "react-native"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Alert, Dimensions, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
 import type { Socket } from "socket.io-client"
 import { getSocketInstance } from "../../../utils/socketManager"
 import { getPieceComponent } from "../../components/game/chessPieces"
 import { crazyHouseStyles } from "../../lib/styles/components/crazyHouse"
 import { variantStyles } from "@/app/lib/styles"
+import { BOARD_THEME } from "@/app/lib/constants/boardTheme"
 import { usePreventEarlyExit } from "@/app/lib/hooks/usePreventEarlyExit"
 
 // Define types for this component
@@ -25,6 +26,22 @@ const baseBoardSize = screenWidth - horizontalPadding * 2
 const coordinateFontSize = isSmallScreen ? 8 : 10
 const pocketPieceSize = isSmallScreen ? 20 : isTablet ? 26 : 22
 const promotionPieceSize = isSmallScreen ? 32 : isTablet ? 40 : 36
+
+type DragState = {
+  active: boolean
+  from: string | null
+  piece: string | null
+  x: number
+  y: number
+}
+
+const INITIAL_DRAG_STATE: DragState = {
+  active: false,
+  from: null,
+  piece: null,
+  x: 0,
+  y: 0,
+}
 
 export default function CrazyHouseChessGame({ initialGameState, userId, onNavigateToMenu }: CrazyHouseChessGameProps) {
   const router = useRouter()
@@ -49,6 +66,8 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
     drop?: boolean
     piece?: string
   } | null>(null)
+  const [dragState, setDragState] = useState<DragState>(INITIAL_DRAG_STATE)
+  const [dragTargetSquare, setDragTargetSquare] = useState<string | null>(null)
   const [showGameEndModal, setShowGameEndModal] = useState(false)
   const [gameEndMessage, setGameEndMessage] = useState("")
   const [isWinner, setIsWinner] = useState<boolean | null>(null)
@@ -64,6 +83,11 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
   const navigationTimeoutRef = useRef<any>(null)
   const boardDimension = baseBoardSize
   const squareSize = boardDimension / 8
+  const dragStateRef = useRef<DragState>(dragState)
+
+  useEffect(() => {
+    dragStateRef.current = dragState
+  }, [dragState])
 
   usePreventEarlyExit({ socket, isGameActive: gameState.status === "active" })
 
@@ -557,6 +581,8 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
     }
 
     const piece = getPieceAt(square)
+    const isDragOrigin = dragState.active && dragState.from === square
+    const pieceToRender = isDragOrigin ? null : piece
     if (isMyTurn && piece && isPieceOwnedByPlayer(piece, playerColor)) {
       setSelectedSquare(square)
       requestPossibleMoves(square)
@@ -608,6 +634,148 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
   function isPieceOwnedByPlayer(piece: string, color: "white" | "black"): boolean {
     return color === "white" ? piece === piece.toUpperCase() : piece === piece.toLowerCase()
   }
+
+  const getSquareFromCoords = useCallback(
+    (x: number, y: number): string | null => {
+      if (x < 0 || y < 0 || x > boardDimension || y > boardDimension) return null
+      const files = boardFlipped ? [...FILES].reverse() : FILES
+      const ranks = boardFlipped ? [...RANKS].reverse() : RANKS
+      const fileIndex = Math.floor(x / squareSize)
+      const rankIndex = Math.floor(y / squareSize)
+      if (fileIndex < 0 || fileIndex >= files.length || rankIndex < 0 || rankIndex >= ranks.length) return null
+      const file = files[fileIndex]
+      const rank = ranks[rankIndex]
+      return file && rank ? `${file}${rank}` : null
+    },
+    [boardFlipped, boardDimension, squareSize],
+  )
+
+  const canDragSquare = useCallback(
+    (square: string | null): boolean => {
+      if (!square) return false
+      if (selectedPocketPiece) return false
+      if (!isMyTurn || gameState.status !== "active") return false
+      const piece = getPieceAt(square)
+      if (!piece) return false
+      return isPieceOwnedByPlayer(piece, playerColor)
+    },
+    [gameState.status, getPieceAt, isPieceOwnedByPlayer, isMyTurn, playerColor, selectedPocketPiece],
+  )
+
+  const restoreSelectionToOrigin = useCallback(() => {
+    const originSquare = dragStateRef.current.from
+    if (originSquare) {
+      setSelectedSquare(originSquare)
+      setDragTargetSquare(originSquare)
+    } else {
+      setSelectedSquare(null)
+      setPossibleMoves([])
+    }
+  }, [])
+
+  const startDrag = useCallback(
+    (square: string, piece: string, x: number, y: number) => {
+      const boundedX = Math.min(Math.max(x, 0), boardDimension)
+      const boundedY = Math.min(Math.max(y, 0), boardDimension)
+      setSelectedPocketPiece(null)
+      setSelectedPocket(null)
+      setDragState({
+        active: true,
+        from: square,
+        piece,
+        x: boundedX,
+        y: boundedY,
+      })
+      setDragTargetSquare(square)
+      setSelectedSquare(square)
+      requestPossibleMoves(square)
+    },
+    [boardDimension, requestPossibleMoves],
+  )
+
+  const finishDragMove = useCallback(
+    (targetSquare: string | null) => {
+      const originSquare = dragStateRef.current.from
+      setDragState(INITIAL_DRAG_STATE)
+      setDragTargetSquare(null)
+
+      if (!originSquare) {
+        setSelectedSquare(null)
+        setPossibleMoves([])
+        return
+      }
+
+      if (!targetSquare || originSquare === targetSquare) {
+        restoreSelectionToOrigin()
+        return
+      }
+
+      if (possibleMoves.includes(targetSquare)) {
+        const piece = getPieceAt(originSquare)
+        const isPromotion =
+          piece &&
+          ((piece.toLowerCase() === "p" && playerColor === "white" && targetSquare[1] === "8") ||
+            (piece.toLowerCase() === "p" && playerColor === "black" && targetSquare[1] === "1"))
+
+        if (isPromotion) {
+          const options = ["q", "r", "b", "n"]
+          setPromotionModal({ visible: true, from: originSquare, to: targetSquare, options })
+          return
+        }
+
+        makeMove({ from: originSquare, to: targetSquare })
+        setSelectedSquare(null)
+        setPossibleMoves([])
+      } else {
+        restoreSelectionToOrigin()
+      }
+    },
+    [getPieceAt, makeMove, playerColor, possibleMoves, restoreSelectionToOrigin],
+  )
+
+  const abortDrag = useCallback(() => {
+    setDragState(INITIAL_DRAG_STATE)
+    setDragTargetSquare(null)
+    restoreSelectionToOrigin()
+  }, [restoreSelectionToOrigin])
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (evt, gestureState) => {
+          if (Math.abs(gestureState.dx) < 4 && Math.abs(gestureState.dy) < 4) return false
+          const square = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
+          return canDragSquare(square)
+        },
+        onPanResponderGrant: (evt) => {
+          const { locationX, locationY } = evt.nativeEvent
+          const square = getSquareFromCoords(locationX, locationY)
+          if (!square) return
+          const piece = getPieceAt(square)
+          if (piece && canDragSquare(square)) {
+            startDrag(square, piece, locationX, locationY)
+          }
+        },
+        onPanResponderMove: (evt) => {
+          if (!dragStateRef.current.active) return
+          const { locationX, locationY } = evt.nativeEvent
+          const boundedX = Math.min(Math.max(locationX, 0), boardDimension)
+          const boundedY = Math.min(Math.max(locationY, 0), boardDimension)
+          setDragState((prev) => (prev.active ? { ...prev, x: boundedX, y: boundedY } : prev))
+          const hoverSquare = getSquareFromCoords(boundedX, boundedY)
+          setDragTargetSquare(hoverSquare)
+        },
+        onPanResponderRelease: (evt) => {
+          const targetSquare = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
+          finishDragMove(targetSquare)
+        },
+        onPanResponderTerminate: () => {
+          abortDrag()
+        },
+      }),
+    [abortDrag, canDragSquare, finishDragMove, getPieceAt, getSquareFromCoords, startDrag, boardDimension],
+  )
 
   function formatTime(milliseconds: number): string {
     if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "0:00"
@@ -780,19 +948,27 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
     let borderColor = "transparent"
     let borderWidth = 0
 
-    if (isPossibleMove && piece) {
-      borderColor = "#dc2626"
+    if (dragState.active && dragTargetSquare === square) {
+      borderColor = BOARD_THEME.highlight.selected
+      borderWidth = 2
+    } else if (isPossibleMove && piece) {
+      borderColor = BOARD_THEME.highlight.capture
       borderWidth = 2
     } else if (isPossibleMove) {
-      borderColor = "#16a34a"
+      borderColor = BOARD_THEME.highlight.move
       borderWidth = 2
     } else if (isSelected) {
-      borderColor = "#2563eb"
+      borderColor = BOARD_THEME.highlight.selected
       borderWidth = 2
     } else if (isLastMove) {
-      borderColor = "#f59e0b"
+      borderColor = BOARD_THEME.highlight.lastMove
       borderWidth = 1
     }
+
+    const squareBackground = isLight ? BOARD_THEME.lightSquare : BOARD_THEME.darkSquare
+    const coordinateColor = isLight ? BOARD_THEME.darkSquare : BOARD_THEME.lightSquare
+    const moveDotSize = squareSize * BOARD_THEME.moveDotScale
+    const captureIndicatorSize = squareSize * BOARD_THEME.captureIndicatorScale
 
     return (
       <View key={square} style={{ position: "relative" }}>
@@ -802,7 +978,7 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
             {
               width: squareSize,
               height: squareSize,
-              backgroundColor: isLight ? "#F0D9B5" : "#769656",
+              backgroundColor: squareBackground,
               borderWidth,
               borderColor,
             },
@@ -814,7 +990,7 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
               style={[
                 variantStyles.coordinateLabel,
                 variantStyles.rankLabel,
-                { color: isLight ? "#769656" : "#F0D9B5", fontSize: coordinateFontSize },
+                { color: coordinateColor, fontSize: coordinateFontSize },
               ]}
             >
               {rank}
@@ -825,23 +1001,23 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
               style={[
                 variantStyles.coordinateLabel,
                 variantStyles.fileLabel,
-                { color: isLight ? "#769656" : "#F0D9B5", fontSize: coordinateFontSize },
+                { color: coordinateColor, fontSize: coordinateFontSize },
               ]}
             >
               {file}
             </Text>
           )}
 
-          {piece && getPieceComponent(piece, squareSize * 0.8)}
+          {pieceToRender && getPieceComponent(pieceToRender, squareSize * BOARD_THEME.pieceScale)}
 
           {isPossibleMove && !piece && (
             <View
               style={[
                 variantStyles.possibleMoveDot,
                 {
-                  width: squareSize * 0.25,
-                  height: squareSize * 0.25,
-                  borderRadius: squareSize * 0.125,
+                  width: moveDotSize,
+                  height: moveDotSize,
+                  borderRadius: moveDotSize / 2,
                 },
               ]}
             />
@@ -851,9 +1027,9 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
               style={[
                 variantStyles.captureIndicator,
                 {
-                  width: squareSize * 0.3,
-                  height: squareSize * 0.3,
-                  borderRadius: squareSize * 0.15,
+                  width: captureIndicatorSize,
+                  height: captureIndicatorSize,
+                  borderRadius: captureIndicatorSize / 2,
                 },
               ]}
             />
@@ -870,19 +1046,44 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
     return (
       <View style={[variantStyles.boardContainer, { width: boardDimension, height: boardDimension }]}>
         <View
-          style={[
-            variantStyles.board,
-            {
-              width: boardDimension,
-              height: boardDimension,
-            },
-          ]}
+          style={{
+            width: boardDimension,
+            height: boardDimension,
+            position: "relative",
+          }}
+          {...panResponder.panHandlers}
         >
-          {ranks.map((rank) => (
-            <View key={rank} style={variantStyles.row}>
-              {files.map((file) => renderSquare(file, rank))}
+          <View
+            style={[
+              variantStyles.board,
+              {
+                width: boardDimension,
+                height: boardDimension,
+              },
+            ]}
+          >
+            {ranks.map((rank) => (
+              <View key={rank} style={variantStyles.row}>
+                {files.map((file) => renderSquare(file, rank))}
+              </View>
+            ))}
+          </View>
+          {dragState.active && dragState.piece && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: dragState.x - squareSize / 2,
+                top: dragState.y - squareSize / 2,
+                width: squareSize,
+                height: squareSize,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              {getPieceComponent(dragState.piece, squareSize * BOARD_THEME.pieceScale)}
             </View>
-          ))}
+          )}
         </View>
       </View>
     )

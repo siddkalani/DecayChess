@@ -32,7 +32,6 @@ export default function ClassicOffline() {
   const [boardFlipped, setBoardFlipped] = useState(false)
 
   const [timers, setTimers] = useState<{ white: number; black: number }>({ white: baseTime, black: baseTime })
-  const turnStartRef = useRef<number>(Date.now())
   const lastTickRef = useRef<number>(Date.now())
   const intervalRef = useRef<any>(null)
   const [gameEnded, setGameEnded] = useState(false)
@@ -52,7 +51,6 @@ export default function ClassicOffline() {
   useEffect(() => {
     // Initialize timing loop
     lastTickRef.current = Date.now()
-    turnStartRef.current = Date.now()
     intervalRef.current = setInterval(() => {
       if (gameEnded) return
       const now = Date.now()
@@ -68,7 +66,7 @@ export default function ClassicOffline() {
         }
         return next
       })
-    }, 250)
+    }, 100)
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
@@ -174,14 +172,17 @@ export default function ClassicOffline() {
   const applyMove = (m: { from: string; to: string; promotion?: string }) => {
     if (gameEnded) return
 
-    // Deduct elapsed time from current player and add increment after move
+    // Deduct any time that passed since the last tick so moves feel real-time
     const now = Date.now()
-    const elapsed = now - turnStartRef.current
-    setTimers((prev) => {
-      const next = { ...prev }
-      next[activeColor] = Math.max(0, next[activeColor] - elapsed)
-      return next
-    })
+    const elapsedSinceLastTick = Math.max(0, now - lastTickRef.current)
+    if (elapsedSinceLastTick > 0) {
+      setTimers((prev) => {
+        const next = { ...prev }
+        next[activeColor] = Math.max(0, next[activeColor] - elapsedSinceLastTick)
+        return next
+      })
+    }
+    lastTickRef.current = now
 
     let result
     try {
@@ -218,7 +219,6 @@ export default function ClassicOffline() {
     // Switch turn
     const nextColor: Color = activeColor === 'white' ? 'black' : 'white'
     setActiveColor(nextColor)
-    turnStartRef.current = Date.now()
 
     // Check end conditions
     if (game.isCheckmate()) {
@@ -395,9 +395,9 @@ export default function ClassicOffline() {
       activeBottomTab="offline"
     >
       <View style={[variantStyles.container, offlineStyles.container]}>
-        <PlayerInfo color={boardFlipped ? (activeColor === 'white' ? 'black' : 'white') : (activeColor === 'white' ? 'black' : 'white')} top={true} />
+        <PlayerInfo color={boardFlipped ? 'white' : 'black'} top={true} />
         {renderBoard()}
-        <PlayerInfo color={boardFlipped ? activeColor : activeColor} top={false} />
+        <PlayerInfo color={boardFlipped ? 'black' : 'white'} top={false} />
 
         <View style={variantStyles.bottomBar}>
           <TouchableOpacity style={variantStyles.bottomBarButton} onPress={() => setShowMoveHistory(true)}>

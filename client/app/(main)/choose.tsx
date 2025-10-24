@@ -1,11 +1,12 @@
 import { getSocket } from "@/utils/socketManager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Modal,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,33 +27,55 @@ export default function Choose() {
     {
       name: "decay",
       title: "Decay",
-      subtitle: "Pieces decay after some time • 100 coins per win",
-      description: "Pieces decay after a set number of moves. Adapt your strategy!",
-      rules: "In Decay Chess, each piece has a limited lifespan measured in moves. After a certain number of moves, pieces will 'decay' and be removed from the board. Plan your strategy carefully as your pieces won't last forever!",
+      subtitle: "Time Control: 3+2",
+      description: "Move your queen to start a decay timer; later a major piece gets one too.",
+      rulesItems: [
+        "On your first queen move, a 25s Decay Timer starts (runs only on your turns).",
+        "Each subsequent move of that same queen adds +2s to its remaining decay time.",
+        "If the timer expires, the queen freezes and cannot be moved again.",
+        "After your queen freezes, the next major piece you move starts a 20s Decay Timer with the same behavior.",
+      ],
       color: "#2C2C2E"
     },
     {
       name: "sixpointer",
-      title: "6 Point Chess",
-      subtitle: "Win by points after 6 moves each • 100 coins per win",
-      description: "Each piece has a point value. Score 6 points to win!",
-      rules: "Each piece has a specific point value: Pawn=1, Knight/Bishop=3, Rook=5, Queen=9. Capture opponent pieces to accumulate points. First player to reach 6 points wins the game!",
+      title: "6PT Chess",
+      subtitle: "Time Control: 30 sec per move",
+      description: "Score points by captures over 6 moves each from a balanced random start.",
+      rulesItems: [
+        "Start from a verified random, legal, balanced mid‑game position.",
+        "Each side gets 6 full moves (12 plies); after both complete 6 moves, the game ends.",
+        "Scoring: Pawn=1, Knight/Bishop=3, Rook=5, Queen=9 (sum your captures).",
+        "Checkmate ends immediately; the checkmated side loses.",
+        "Draws (stalemate/threefold): scores stand and are split accordingly.",
+        "Missed move (flag or failing to play when legal): −1 point penalty.",
+        "Foul play: if you capture on your 6th move and opponent has an immediate legal recapture but no moves left, it counts as foul play.",
+        "Tie on points: Draw.",
+      ],
       color: "#2C2C2E"
     },
     {
       name: "crazyhouse",
-      title: "Crazyhouse ",
-      subtitle: "Crazyhouse without time pressure • 100 coins per win",
-      description: "Captured pieces return to your hand. Play fast!",
-      rules: "When you capture an opponent's piece, it joins your reserves and can be dropped back onto the board as your own piece on any empty square. This creates dynamic and tactical gameplay with time pressure!",
+      title: "Crazyhouse",
+      subtitle: "Time Control: 3+2 (choose Standard or with Timer)",
+      description: "Captured pieces go to your Pocket; drop them on your turn instead of moving.",
+      rulesItems: [
+        "Captured enemy pieces go to your Pocket.",
+        "On your turn, you may drop a pocket piece on a legal square instead of moving.",
+        "Pawns cannot be dropped on the 1st or 8th ranks.",
+        "With Timer subvariant: each captured piece must be dropped within 10s on your turn or it disappears.",
+      ],
       color: "#2C2C2E"
     },
     {
       name: "classic",
       title: "Classic Chess",
-      subtitle: "Play offline with a friend",
-      description: "The traditional chess game with no special rules.",
-      rules: "Standard chess rules apply. The objective is to checkmate your opponent's king. Pieces move according to traditional chess rules with no modifications.",
+      subtitle: "Time Controls: Standard 10+0, Bullet 1+0",
+      description: "Normal FIDE rules for movement, castling, en passant, promotion, check, and checkmate.",
+      rulesItems: [
+        "Flagging: main clock expires → loss on time.",
+        "Illegal moves follow standard chess penalties.",
+      ],
       color: "#2C2C2E"
     },
   ];
@@ -69,36 +92,49 @@ export default function Choose() {
     classic: 0,
   });
   const [isFetchingLivePlayers, setIsFetchingLivePlayers] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    const fetchUserId = async () => {
-      try {
-        const storedUser = await AsyncStorage.getItem("user");
-        if (storedUser) {
-          const user = JSON.parse(storedUser);
-          setUserId(user._id);
-          return;
-        }
-
-        router.replace("/(auth)/login");
-        return;
-      } catch (e) {
-        console.error("Error fetching user ID:", e);
-        router.replace("/(auth)/login");
-        return;
-      }
-    };
-
-    fetchUserId();
-  }, [router])
-
-  useEffect(() => {
-    if (!userId) {
-      return;
+  const clearRefreshTimeout = useCallback(() => {
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = null;
     }
+  }, []);
 
-    setIsFetchingLivePlayers(true);
+  const fetchUserId = useCallback(async (): Promise<string | null> => {
+    try {
+      const storedUser = await AsyncStorage.getItem("user");
+      if (storedUser) {
+        const user = JSON.parse(storedUser);
+        setUserId(user._id);
+        return user._id;
+      }
+
+      setUserId(null);
+      router.replace("/(auth)/login");
+      return null;
+    } catch (e) {
+      console.error("Error fetching user ID:", e);
+      setUserId(null);
+      router.replace("/(auth)/login");
+      return null;
+    }
+  }, [router]);
+
+  useEffect(() => {
+    fetchUserId();
+  }, [fetchUserId]);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    if (!refreshing) {
+      setIsFetchingLivePlayers(true);
+    }
     const socketInstance = getSocket(userId, "matchmaking");
+
     const handleLiveCounts = (data: { decay?: number; sixpointer?: number; crazyhouse?: number; classic?: number }) => {
       setLivePlayers({
         decay: Number(data?.decay) || 0,
@@ -107,13 +143,30 @@ export default function Choose() {
         classic: Number(data?.classic) || 0,
       });
       setIsFetchingLivePlayers(false);
+      setRefreshing(false);
+      clearRefreshTimeout();
+    };
+
+    const handleConnectError = (error: Error) => {
+      console.error("Matchmaking socket connection error:", error);
+      setIsFetchingLivePlayers(false);
+      setRefreshing(false);
+      clearRefreshTimeout();
+    };
+
+    const requestCounts = () => {
+      try {
+        socketInstance.emit("queue:get_live_counts");
+      } catch (err) {
+        console.error("Failed to request live counts:", err);
+        setIsFetchingLivePlayers(false);
+        setRefreshing(false);
+        clearRefreshTimeout();
+      }
     };
 
     socketInstance.on("queue:live_counts", handleLiveCounts);
-
-    const requestCounts = () => {
-      socketInstance.emit("queue:get_live_counts");
-    };
+    socketInstance.on("connect_error", handleConnectError);
 
     if (!socketInstance.connected) {
       socketInstance.once("connect", requestCounts);
@@ -124,9 +177,42 @@ export default function Choose() {
 
     return () => {
       socketInstance.off("queue:live_counts", handleLiveCounts);
+      socketInstance.off("connect_error", handleConnectError);
       socketInstance.off("connect", requestCounts);
     };
-  }, [userId])
+  }, [userId, refreshKey, clearRefreshTimeout]);
+
+  useEffect(() => {
+    return () => {
+      clearRefreshTimeout();
+    };
+  }, [clearRefreshTimeout]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    clearRefreshTimeout();
+    refreshTimeoutRef.current = setTimeout(() => {
+      refreshTimeoutRef.current = null;
+      setRefreshing(false);
+      setIsFetchingLivePlayers(false);
+    }, 10000);
+    fetchUserId()
+      .then((id) => {
+        if (!id) {
+          setIsFetchingLivePlayers(false);
+          setRefreshing(false);
+          clearRefreshTimeout();
+          return;
+        }
+        setRefreshKey((prev) => prev + 1);
+      })
+      .catch((error) => {
+        console.error("Failed to refresh home screen:", error);
+        setIsFetchingLivePlayers(false);
+        setRefreshing(false);
+        clearRefreshTimeout();
+      });
+  }, [fetchUserId, clearRefreshTimeout]);
 
  
 
@@ -238,11 +324,19 @@ export default function Choose() {
     >
       {isChooseScreen ? (
         isFetchingLivePlayers ? (
-          <ChooseScreenSkeleton />
+          <ChooseScreenSkeleton refreshing={refreshing} onRefresh={handleRefresh} />
         ) : (
-          <ScrollView 
+          <ScrollView
             contentContainerStyle={chooseScreenStyles.scrollViewContent}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor="#00A862"
+                colors={["#00A862"]}
+              />
+            }
           >
             {/* Navigation Buttons */}
             <View style={chooseScreenStyles.navButtonsContainer}>
@@ -273,7 +367,9 @@ export default function Choose() {
                 <VariantCard
                   key={variant.name}
                   variantName={variant.title}
+                  subtitle={variant.subtitle}
                   description={variant.description}
+                  rulesItems={(variant as any).rulesItems}
                   activePlayers={livePlayers[variant.name as keyof typeof livePlayers] ?? 0}
                   onPlay={() => handleVariantSelect(variant.name)}
                   disabled={userId ? false : true}
@@ -295,9 +391,9 @@ export default function Choose() {
       >
         <View style={chooseScreenStyles.modalOverlay}>
           <View style={chooseScreenStyles.rulesModal}>
-            <Text style={chooseScreenStyles.rulesTitle}>{selectedVariantTitle} Rules</Text>
+            <Text style={chooseScreenStyles.rulesTitle}>Game Rules</Text>
             <ScrollView style={chooseScreenStyles.rulesContent}>
-              <Text style={chooseScreenStyles.rulesText}>{selectedVariantRules}</Text>
+              <RulesModalContent />
             </ScrollView>
             <TouchableOpacity style={chooseScreenStyles.closeRulesButton} onPress={closeRulesModal}>
               <Text style={chooseScreenStyles.closeRulesButtonText}>Close</Text>
@@ -309,11 +405,94 @@ export default function Choose() {
   );
 }
 
-function ChooseScreenSkeleton() {
+function Section({ title, items }: { title: string; items: string[] }) {
+  return (
+    <View style={{ marginBottom: 18 }}>
+      <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 8 }}>{title}</Text>
+      {items.map((it, idx) => (
+        <View key={idx} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 }}>
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#00A862', marginTop: 7, marginRight: 8 }} />
+          <Text style={{ color: '#ddd', fontSize: 14, lineHeight: 20, flex: 1 }}>{it}</Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function RulesModalContent() {
+  // Global rules
+  const globalRules = [
+    "Flagging: If a player's main clock expires, they lose on time.",
+    "Variant-specific timers (Decay / Pocket) run only during that player's own turns.",
+    "Illegal moves follow standard chess penalties.",
+    "Random-start positions (where used) must be verified to avoid unfair advantage.",
+  ];
+
+  // Per-variant rules
+  const classicRules = [
+    "Time Controls: Standard 10+0, Bullet 1+0.",
+    "Normal FIDE rules: movement, castling, en passant, promotion, check, and checkmate.",
+  ];
+
+  const decayRules = [
+    "Time Control: 3+2.",
+    "First queen move starts a 25s Decay Timer (runs on your turns only).",
+    "Each subsequent move of that queen adds +2s to the decay timer.",
+    "If the timer expires, the queen freezes and cannot be moved again.",
+    "After queen freezes, the next major piece you move starts a 20s Decay Timer with the same behavior.",
+  ];
+
+  const crazyTimerRules = [
+    "Time Control: 3+2.",
+    "Captured enemy pieces go to your Pocket (Crazyhouse rules).",
+    "Each captured piece must be dropped within 10s on your turn, or it disappears.",
+    "Drops must be legal (pawns may not be dropped on the 1st or 8th ranks).",
+  ];
+
+  const crazyRules = [
+    "Time Control: 3+2.",
+    "Captured enemy pieces go to your Pocket.",
+    "On your turn, you may drop a pocket piece on a legal square instead of moving.",
+    "No pocket timer in this variant; standard Crazyhouse drop legality applies.",
+  ];
+
+  const sixPtRules = [
+    "Time Control: 30 seconds per move.",
+    "Start from a verified, random, legal, balanced mid‑game position.",
+    "Each side gets 6 full moves (12 plies); then the game ends.",
+    "Scoring by captures: Pawn=1, Knight/Bishop=3, Rook=5, Queen=9.",
+    "Checkmate ends immediately; the checkmated side loses.",
+    "Draws (stalemate/threefold): scores stand and are split accordingly.",
+    "Missed move within the 6‑move span: −1 point penalty.",
+    "Foul play clause: capturing on your 6th move when opponent has an immediate legal recapture but no moves left counts as foul play.",
+    "Tie on points: Draw.",
+  ];
+
+  return (
+    <View>
+      <Section title="Global Rules" items={globalRules} />
+      <Section title="Classic (Standard Chess)" items={classicRules} />
+      <Section title="Queen Decay Chess" items={decayRules} />
+      <Section title="Crazyhouse (with Timer)" items={crazyTimerRules} />
+      <Section title="Crazyhouse" items={crazyRules} />
+      <Section title="6PT Chess" items={sixPtRules} />
+    </View>
+  )
+}
+
+function ChooseScreenSkeleton({ refreshing, onRefresh }: { refreshing: boolean; onRefresh: () => void }) {
   return (
     <ScrollView
       contentContainerStyle={chooseScreenStyles.scrollViewContent}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor="#00A862"
+          colors={["#00A862"]}
+        />
+      }
     >
       <View style={chooseScreenStyles.navButtonsContainer}>
         {[0, 1].map((item) => (

@@ -3,10 +3,11 @@
 import { getPieceComponent } from "@/app/components"
 import { getSocketInstance } from "@/utils/socketManager"
 import { useRouter } from "expo-router"
-import { useEffect, useRef, useState } from "react"
-import { Alert, Dimensions, Modal, ScrollView, Text, TouchableOpacity, View } from "react-native"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Alert, Dimensions, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
 import type { Socket } from "socket.io-client"
 import { sixPointerStyles, variantStyles } from "@/app/lib/styles"
+import { BOARD_THEME } from "@/app/lib/constants/boardTheme"
 import { usePreventEarlyExit } from "@/app/lib/hooks/usePreventEarlyExit"
 import type { Move, GameState, SixPointerChessGameProps } from "@/app/lib/types/sixpointer"
 
@@ -23,6 +24,22 @@ const squareSize = boardSize / 8
 const capturedPieceSize = isSmallScreen ? 16 : 18
 const coordinateFontSize = isSmallScreen ? 8 : 10
 const promotionPieceSize = isSmallScreen ? 32 : isTablet ? 40 : 36
+
+type DragState = {
+  active: boolean
+  from: string | null
+  piece: string | null
+  x: number
+  y: number
+}
+
+const INITIAL_DRAG_STATE: DragState = {
+  active: false,
+  from: null,
+  piece: null,
+  x: 0,
+  y: 0,
+}
 
 export default function SixPointerChessGame({ initialGameState, userId, onNavigateToMenu }: SixPointerChessGameProps) {
   const router = useRouter()
@@ -41,6 +58,8 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     to: string
     options: string[]
   } | null>(null)
+  const [dragState, setDragState] = useState<DragState>(INITIAL_DRAG_STATE)
+  const [dragTargetSquare, setDragTargetSquare] = useState<string | null>(null)
 
   // Game ending state
   const [showGameEndModal, setShowGameEndModal] = useState(false)
@@ -76,6 +95,11 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     white: safeTimerValue(initialGameState.timeControl.timers.white),
     black: safeTimerValue(initialGameState.timeControl.timers.black),
   })
+  const dragStateRef = useRef<DragState>(dragState)
+
+  useEffect(() => {
+    dragStateRef.current = dragState
+  }, [dragState])
 
   const lastServerSync = useRef<{
     white: number
@@ -151,6 +175,13 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
       }
     })
 
+    const formatSentence = (text?: string | null) => {
+      if (!text) return ""
+      const trimmed = text.trim()
+      if (!trimmed) return ""
+      return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+    }
+
     // Determine if current player won
     let playerWon: boolean | null = null
     let message = ""
@@ -158,42 +189,42 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     if (result === "checkmate") {
       if (winner === playerColor) {
         playerWon = true
-        message = "🎉 VICTORY! 🎉\nCheckmate! You won the game!"
+        message = "Checkmate! You won the game!"
       } else if (winner && winner !== playerColor) {
         playerWon = false
-        message = "😔 DEFEAT 😔\nCheckmate! You lost the game."
+        message = "Checkmate! You lost the game."
       } else {
         playerWon = null
-        message = "🏁 GAME OVER 🏁\nCheckmate occurred"
+        message = "Checkmate occurred."
       }
     } else if (result === "timeout") {
       if (winner === playerColor) {
         playerWon = true
-        message = "🎉 VICTORY! 🎉\nYour opponent ran out of time!"
+        message = "Your opponent ran out of time."
       } else if (winner && winner !== playerColor) {
         playerWon = false
-        message = "😔 DEFEAT 😔\nYou ran out of time!"
+        message = "You ran out of time."
       } else {
         playerWon = null
-        message = "🏁 GAME OVER 🏁\nTime expired"
+        message = "Time expired."
       }
     } else if (result === "points") {
       if (winner === playerColor) {
         playerWon = true
-        message = `🎉 VICTORY! 🎉\nYou won by points!`
+        message = "You won by points!"
       } else if (winner && winner !== playerColor) {
         playerWon = false
-        message = `😔 DEFEAT 😔\nYou lost by points!`
+        message = "You lost by points."
       } else {
         playerWon = null
-        message = `⚖️ DRAW ⚖️\nEqual points!`
+        message = "Equal points!"
       }
     } else if (result === "draw") {
       playerWon = null
-      message = `⚖️ DRAW ⚖️\n${endReason || "Game ended in a draw"}`
+      message = endReason ? formatSentence(endReason) : "Game ended in a draw."
     } else {
       playerWon = null
-      message = `🏁 GAME OVER 🏁\n${result}`
+      message = formatSentence(endReason) || formatSentence(result) || "The game has ended."
     }
 
     setIsWinner(playerWon)
@@ -1131,6 +1162,145 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     }
   }
 
+  const getSquareFromCoords = useCallback(
+    (x: number, y: number): string | null => {
+      if (x < 0 || y < 0 || x > boardSize || y > boardSize) return null
+      const files = boardFlipped ? [...FILES].reverse() : FILES
+      const ranks = boardFlipped ? [...RANKS].reverse() : RANKS
+      const fileIndex = Math.floor(x / squareSize)
+      const rankIndex = Math.floor(y / squareSize)
+      if (fileIndex < 0 || fileIndex >= files.length || rankIndex < 0 || rankIndex >= ranks.length) return null
+      const file = files[fileIndex]
+      const rank = ranks[rankIndex]
+      return file && rank ? `${file}${rank}` : null
+    },
+    [boardFlipped],
+  )
+
+  const canDragSquare = useCallback(
+    (square: string | null): boolean => {
+      if (!square) return false
+      if (!isMyTurn || gameState.status !== "active") return false
+      const piece = getPieceAt(square)
+      if (!piece) return false
+      return isPieceOwnedByPlayer(piece, playerColor)
+    },
+    [isMyTurn, gameState.status, getPieceAt, isPieceOwnedByPlayer, playerColor],
+  )
+
+  const restoreSelectionToOrigin = useCallback(() => {
+    const originSquare = dragStateRef.current.from
+    if (originSquare) {
+      setSelectedSquare(originSquare)
+      setDragTargetSquare(originSquare)
+    } else {
+      setSelectedSquare(null)
+      setPossibleMoves([])
+    }
+  }, [])
+
+  const startDrag = useCallback(
+    (square: string, piece: string, x: number, y: number) => {
+      const boundedX = Math.min(Math.max(x, 0), boardSize)
+      const boundedY = Math.min(Math.max(y, 0), boardSize)
+      setDragState({
+        active: true,
+        from: square,
+        piece,
+        x: boundedX,
+        y: boundedY,
+      })
+      setDragTargetSquare(square)
+      setSelectedSquare(square)
+      requestPossibleMoves(square)
+    },
+    [requestPossibleMoves],
+  )
+
+  const finishDragMove = useCallback(
+    (targetSquare: string | null) => {
+      const originSquare = dragStateRef.current.from
+      setDragState(INITIAL_DRAG_STATE)
+      setDragTargetSquare(null)
+
+      if (!originSquare) {
+        setSelectedSquare(null)
+        setPossibleMoves([])
+        return
+      }
+
+      if (!targetSquare || originSquare === targetSquare) {
+        restoreSelectionToOrigin()
+        return
+      }
+
+      if (possibleMoves.includes(targetSquare)) {
+        const piece = getPieceAt(originSquare)
+        const isPromotion =
+          piece &&
+          ((piece.toLowerCase() === "p" && playerColor === "white" && targetSquare[1] === "8") ||
+            (piece.toLowerCase() === "p" && playerColor === "black" && targetSquare[1] === "1"))
+
+        if (isPromotion) {
+          const options = ["q", "r", "b", "n"]
+          setPromotionModal({ visible: true, from: originSquare, to: targetSquare, options })
+          return
+        }
+
+        makeMove({ from: originSquare, to: targetSquare })
+        setSelectedSquare(null)
+        setPossibleMoves([])
+      } else {
+        restoreSelectionToOrigin()
+      }
+    },
+    [getPieceAt, playerColor, makeMove, possibleMoves, restoreSelectionToOrigin],
+  )
+
+  const abortDrag = useCallback(() => {
+    setDragState(INITIAL_DRAG_STATE)
+    setDragTargetSquare(null)
+    restoreSelectionToOrigin()
+  }, [restoreSelectionToOrigin])
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (evt, gestureState) => {
+          if (Math.abs(gestureState.dx) < 4 && Math.abs(gestureState.dy) < 4) return false
+          const square = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
+          return canDragSquare(square)
+        },
+        onPanResponderGrant: (evt) => {
+          const { locationX, locationY } = evt.nativeEvent
+          const square = getSquareFromCoords(locationX, locationY)
+          if (!square) return
+          const piece = getPieceAt(square)
+          if (piece && canDragSquare(square)) {
+            startDrag(square, piece, locationX, locationY)
+          }
+        },
+        onPanResponderMove: (evt) => {
+          if (!dragStateRef.current.active) return
+          const { locationX, locationY } = evt.nativeEvent
+          const boundedX = Math.min(Math.max(locationX, 0), boardSize)
+          const boundedY = Math.min(Math.max(locationY, 0), boardSize)
+          setDragState((prev) => (prev.active ? { ...prev, x: boundedX, y: boundedY } : prev))
+          const hoverSquare = getSquareFromCoords(boundedX, boundedY)
+          setDragTargetSquare(hoverSquare)
+        },
+        onPanResponderRelease: (evt) => {
+          const targetSquare = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
+          finishDragMove(targetSquare)
+        },
+        onPanResponderTerminate: () => {
+          abortDrag()
+        },
+      }),
+    [abortDrag, canDragSquare, finishDragMove, getPieceAt, getSquareFromCoords, startDrag, boardSize],
+  )
+
   const formatTime = (milliseconds: number): string => {
     if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "0:00"
     const totalSeconds = Math.floor(milliseconds / 1000)
@@ -1169,6 +1339,8 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     const isSelected = selectedSquare === square
     const isPossibleMove = possibleMoves.includes(square)
     const piece = getPieceAt(square)
+    const isDragOrigin = dragState.active && dragState.from === square
+    const pieceToRender = isDragOrigin ? null : piece
 
     let lastMoveObj = null
     if (gameState.board && Array.isArray(gameState.board.moveHistory) && gameState.board.moveHistory.length > 0) {
@@ -1190,19 +1362,27 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     let borderColor = "transparent"
     let borderWidth = 0
 
-    if (isPossibleMove && piece) {
-      borderColor = "#dc2626"
+    if (dragState.active && dragTargetSquare === square) {
+      borderColor = BOARD_THEME.highlight.selected
+      borderWidth = 2
+    } else if (isPossibleMove && piece) {
+      borderColor = BOARD_THEME.highlight.capture
       borderWidth = 2
     } else if (isPossibleMove) {
-      borderColor = "#16a34a"
+      borderColor = BOARD_THEME.highlight.move
       borderWidth = 2
     } else if (isSelected) {
-      borderColor = "#2563eb"
+      borderColor = BOARD_THEME.highlight.selected
       borderWidth = 2
     } else if (isLastMove) {
-      borderColor = "#f59e0b"
+      borderColor = BOARD_THEME.highlight.lastMove
       borderWidth = 1
     }
+
+    const squareBackground = isLight ? BOARD_THEME.lightSquare : BOARD_THEME.darkSquare
+    const coordinateColor = isLight ? BOARD_THEME.darkSquare : BOARD_THEME.lightSquare
+    const moveDotSize = squareSize * BOARD_THEME.moveDotScale
+    const captureIndicatorSize = squareSize * BOARD_THEME.captureIndicatorScale
 
     return (
       <View key={square} style={{ position: "relative" }}>
@@ -1212,7 +1392,7 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
             {
               width: squareSize,
               height: squareSize,
-              backgroundColor: isLight ? "#F0D9B5" : "#769656",
+              backgroundColor: squareBackground,
               borderWidth,
               borderColor,
             },
@@ -1224,7 +1404,7 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
               style={[
                 variantStyles.coordinateLabel,
                 variantStyles.rankLabel,
-                { color: isLight ? "#769656" : "#F0D9B5", fontSize: coordinateFontSize },
+                { color: coordinateColor, fontSize: coordinateFontSize },
               ]}
             >
               {rank}
@@ -1235,23 +1415,23 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
               style={[
                 variantStyles.coordinateLabel,
                 variantStyles.fileLabel,
-                { color: isLight ? "#769656" : "#F0D9B5", fontSize: coordinateFontSize },
+                { color: coordinateColor, fontSize: coordinateFontSize },
               ]}
             >
               {file}
             </Text>
           )}
 
-          {piece && getPieceComponent(piece, squareSize * 0.8)}
+          {pieceToRender && getPieceComponent(pieceToRender, squareSize * BOARD_THEME.pieceScale)}
 
           {isPossibleMove && !piece && (
             <View
               style={[
                 variantStyles.possibleMoveDot,
                 {
-                  width: squareSize * 0.25,
-                  height: squareSize * 0.25,
-                  borderRadius: squareSize * 0.125,
+                  width: moveDotSize,
+                  height: moveDotSize,
+                  borderRadius: moveDotSize / 2,
                 },
               ]}
             />
@@ -1261,9 +1441,9 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
               style={[
                 variantStyles.captureIndicator,
                 {
-                  width: squareSize * 0.3,
-                  height: squareSize * 0.3,
-                  borderRadius: squareSize * 0.15,
+                  width: captureIndicatorSize,
+                  height: captureIndicatorSize,
+                  borderRadius: captureIndicatorSize / 2,
                 },
               ]}
             />
@@ -1279,12 +1459,30 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
 
     return (
       <View style={variantStyles.boardContainer}>
-        <View style={variantStyles.board}>
-          {ranks.map((rank) => (
-            <View key={rank} style={variantStyles.row}>
-              {files.map((file) => renderSquare(file, rank))}
+        <View style={{ width: boardSize, height: boardSize, position: "relative" }} {...panResponder.panHandlers}>
+          <View style={variantStyles.board}>
+            {ranks.map((rank) => (
+              <View key={rank} style={variantStyles.row}>
+                {files.map((file) => renderSquare(file, rank))}
+              </View>
+            ))}
+          </View>
+          {dragState.active && dragState.piece && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: dragState.x - squareSize / 2,
+                top: dragState.y - squareSize / 2,
+                width: squareSize,
+                height: squareSize,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              {getPieceComponent(dragState.piece, squareSize * BOARD_THEME.pieceScale)}
             </View>
-          ))}
+          )}
         </View>
       </View>
     )

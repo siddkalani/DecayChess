@@ -3,10 +3,11 @@
 import { getPieceComponent } from "@/app/components"
 import { getSocketInstance } from "@/utils/socketManager"
 import { useRouter } from "expo-router"
-import { useCallback, useEffect, useRef, useState } from "react"
-import { Alert, Dimensions, Modal, ScrollView, Text, TouchableOpacity, View } from "react-native"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Alert, Dimensions, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
 import type { Socket } from "socket.io-client"
 import { decayStyles } from "@/app/lib/styles"
+import { BOARD_THEME } from "@/app/lib/constants/boardTheme"
 import { DecayChessGameProps, GameState, DecayState, Move } from "@/app/lib/types/decay"
 import { usePreventEarlyExit } from "@/app/lib/hooks/usePreventEarlyExit"
 const screenWidth = Dimensions.get("window").width
@@ -20,8 +21,23 @@ const boardSize = screenWidth - horizontalPadding * 2
 const squareSize = boardSize / 8
 
 const decayTimerFontSize = isSmallScreen ? 8 : 10
-const pieceFontSize = squareSize * (isSmallScreen ? 0.6 : isTablet ? 0.7 : 0.65)
+const pieceFontSize = squareSize * BOARD_THEME.pieceScale
 
+type DragState = {
+  active: boolean
+  from: string | null
+  piece: string | null
+  x: number
+  y: number
+}
+
+const INITIAL_DRAG_STATE: DragState = {
+  active: false,
+  from: null,
+  piece: null,
+  x: 0,
+  y: 0,
+}
 
 
 const PIECE_VALUES = {
@@ -82,6 +98,8 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     to: string
     options: string[]
   } | null>(null)
+  const [dragState, setDragState] = useState<DragState>(INITIAL_DRAG_STATE)
+  const [dragTargetSquare, setDragTargetSquare] = useState<string | null>(null)
 
   // Decay-specific state - FIXED STRUCTURE
   const [decayState, setDecayState] = useState<{
@@ -132,6 +150,11 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     white: safeTimerValue(initialGameState.timeControl.timers.white),
     black: safeTimerValue(initialGameState.timeControl.timers.black),
   })
+  const dragStateRef = useRef<DragState>(dragState)
+
+  useEffect(() => {
+    dragStateRef.current = dragState
+  }, [dragState])
 
   const lastServerSync = useRef<{
     white: number
@@ -201,6 +224,41 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       return piece === piece.toLowerCase()
     }
   }, [])
+
+  const getSquareFromCoords = useCallback(
+    (x: number, y: number): string | null => {
+      if (x < 0 || y < 0 || x > boardSize || y > boardSize) return null
+      const files = boardFlipped ? [...FILES].reverse() : FILES
+      const ranks = boardFlipped ? [...RANKS].reverse() : RANKS
+      const fileIndex = Math.floor(x / squareSize)
+      const rankIndex = Math.floor(y / squareSize)
+      if (fileIndex < 0 || fileIndex > 7 || rankIndex < 0 || rankIndex > 7) return null
+      const file = files[fileIndex]
+      const rank = ranks[rankIndex]
+      if (!file || !rank) return null
+      return `${file}${rank}`
+    },
+    [boardFlipped],
+  )
+
+  const canDragSquare = useCallback(
+    (square: string | null): boolean => {
+      if (!square) return false
+      if (!isMyTurn || gameState.status !== "active") return false
+      const piece = getPieceAt(square)
+      if (!piece) return false
+      if (!isPieceOwnedByPlayer(piece, playerColor)) return false
+      if (frozenPieces[playerColor].has(square)) return false
+      return true
+    },
+    [isMyTurn, gameState.status, getPieceAt, isPieceOwnedByPlayer, playerColor, frozenPieces],
+  )
+
+  const resetDragVisuals = useCallback(() => {
+    setDragState(INITIAL_DRAG_STATE)
+    setDragTargetSquare(null)
+  }, [])
+
 
   // Utility: Remove decay timers and frozen state for captured pieces
   const cleanupCapturedPieces = useCallback(
@@ -561,6 +619,13 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         }
       })
 
+      const formatSentence = (text?: string | null) => {
+        if (!text) return ""
+        const trimmed = text.trim()
+        if (!trimmed) return ""
+        return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+      }
+
       // Determine if current player won
       let playerWon: boolean | null = null
       let message = ""
@@ -568,31 +633,31 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       if (result === "checkmate") {
         if (winner === playerColor) {
           playerWon = true
-          message = "🎉 VICTORY! 🎉\nCheckmate! You won the game!"
+          message = "Checkmate! You won the game!"
         } else if (winner && winner !== playerColor) {
           playerWon = false
-          message = "😔 DEFEAT 😔\nCheckmate! You lost the game."
+          message = "Checkmate! You lost the game."
         } else {
           playerWon = null
-          message = "🏁 GAME OVER 🏁\nCheckmate occurred"
+          message = "Checkmate occurred."
         }
       } else if (result === "timeout") {
         if (winner === playerColor) {
           playerWon = true
-          message = "🎉 VICTORY! 🎉\nYour opponent ran out of time!"
+          message = "Your opponent ran out of time."
         } else if (winner && winner !== playerColor) {
           playerWon = false
-          message = "😔 DEFEAT 😔\nYou ran out of time!"
+          message = "You ran out of time."
         } else {
           playerWon = null
-          message = "🏁 GAME OVER 🏁\nTime expired"
+          message = "Time expired."
         }
       } else if (result === "draw") {
         playerWon = null
-        message = `⚖️ DRAW ⚖️\n${endReason || "Game ended in a draw"}`
+        message = endReason ? formatSentence(endReason) : "Game ended in a draw."
       } else {
         playerWon = null
-        message = `🏁 GAME OVER 🏁\n${result}`
+        message = formatSentence(endReason) || formatSentence(result) || "The game has ended."
       }
 
       setIsWinner(playerWon)
@@ -1108,6 +1173,124 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     [socket, isMyTurn, frozenPieces, playerColor],
   )
 
+  const restoreSelectionToOrigin = useCallback(() => {
+    const originSquare = dragStateRef.current.from
+    if (originSquare) {
+      setSelectedSquare(originSquare)
+      setDragTargetSquare(originSquare)
+    } else {
+      setSelectedSquare(null)
+      setPossibleMoves([])
+    }
+  }, [])
+
+  const startDrag = useCallback(
+    (square: string, piece: string, x: number, y: number) => {
+      const boundedX = Math.min(Math.max(x, 0), boardSize)
+      const boundedY = Math.min(Math.max(y, 0), boardSize)
+      setDragState({
+        active: true,
+        from: square,
+        piece,
+        x: boundedX,
+        y: boundedY,
+      })
+      setDragTargetSquare(square)
+      setSelectedSquare(square)
+      requestPossibleMoves(square)
+    },
+    [requestPossibleMoves],
+  )
+
+  const finishDragMove = useCallback(
+    (targetSquare: string | null) => {
+      const originSquare = dragStateRef.current.from
+      resetDragVisuals()
+
+      if (!originSquare) {
+        setSelectedSquare(null)
+        setPossibleMoves([])
+        return
+      }
+
+      if (!targetSquare || originSquare === targetSquare) {
+        restoreSelectionToOrigin()
+        return
+      }
+
+      if (possibleMoves.includes(targetSquare)) {
+        const piece = getPieceAt(originSquare)
+        const isPromotion =
+          piece &&
+          ((piece.toLowerCase() === "p" && playerColor === "white" && targetSquare[1] === "8") ||
+            (piece.toLowerCase() === "p" && playerColor === "black" && targetSquare[1] === "1"))
+
+        if (isPromotion) {
+          const options = ["q", "r", "b", "n"]
+          setPromotionModal({ visible: true, from: originSquare, to: targetSquare, options })
+          return
+        }
+
+        makeMove({ from: originSquare, to: targetSquare })
+        setSelectedSquare(null)
+        setPossibleMoves([])
+      } else {
+        restoreSelectionToOrigin()
+      }
+    },
+    [getPieceAt, playerColor, makeMove, possibleMoves, resetDragVisuals, restoreSelectionToOrigin],
+  )
+
+  const abortDrag = useCallback(() => {
+    resetDragVisuals()
+    restoreSelectionToOrigin()
+  }, [resetDragVisuals, restoreSelectionToOrigin])
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (evt, gestureState) => {
+          if (Math.abs(gestureState.dx) < 4 && Math.abs(gestureState.dy) < 4) return false
+          const square = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
+          return canDragSquare(square)
+        },
+        onPanResponderGrant: (evt) => {
+          const { locationX, locationY } = evt.nativeEvent
+          const square = getSquareFromCoords(locationX, locationY)
+          if (!square) return
+          const piece = getPieceAt(square)
+          if (piece && canDragSquare(square)) {
+            startDrag(square, piece, locationX, locationY)
+          }
+        },
+        onPanResponderMove: (evt) => {
+          if (!dragStateRef.current.active) return
+          const { locationX, locationY } = evt.nativeEvent
+          const boundedX = Math.min(Math.max(locationX, 0), boardSize)
+          const boundedY = Math.min(Math.max(locationY, 0), boardSize)
+          setDragState((prev) => (prev.active ? { ...prev, x: boundedX, y: boundedY } : prev))
+          const hoverSquare = getSquareFromCoords(boundedX, boundedY)
+          setDragTargetSquare(hoverSquare)
+        },
+        onPanResponderRelease: (evt) => {
+          const targetSquare = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
+          finishDragMove(targetSquare)
+        },
+        onPanResponderTerminate: () => {
+          abortDrag()
+        },
+      }),
+    [
+      abortDrag,
+      canDragSquare,
+      finishDragMove,
+      getPieceAt,
+      getSquareFromCoords,
+      startDrag,
+    ],
+  )
+
   const handleSquarePress = useCallback(
     (square: string) => {
       if (selectedSquare === square) {
@@ -1232,6 +1415,9 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     [gameState.board.capturedPieces],
   )
 
+  const isDraggingPiece = dragState.active
+  const dragOriginSquare = dragState.from
+
   const renderSquare = useCallback(
     (file: string, rank: string) => {
       const square = `${file}${rank}`
@@ -1258,6 +1444,8 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       }
 
       const piece = getPieceAt(square)
+      const isDragOrigin = isDraggingPiece && dragOriginSquare === square
+      const pieceToRender = isDragOrigin ? null : piece
 
       // Check if this piece has an active decay timer
       const pieceColor = piece ? getPieceColor(piece) : null
@@ -1272,21 +1460,32 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       let borderWidth = 0
 
       if (isFrozen) {
-        borderColor = "#dc2626" // Red for frozen pieces
+        borderColor = BOARD_THEME.highlight.frozen
+        borderWidth = 2
+      } else if (isPossibleMove && piece) {
+        borderColor = BOARD_THEME.highlight.capture
         borderWidth = 2
       } else if (isPossibleMove) {
-        borderColor = "#16a34a" // Green for possible moves
+        borderColor = BOARD_THEME.highlight.move
         borderWidth = 2
       } else if (isSelected) {
-        borderColor = "#2563eb" // Blue for selected
+        borderColor = BOARD_THEME.highlight.selected
         borderWidth = 2
       } else if (isLastMove) {
-        borderColor = "#f59e0b" // Yellow for last move
+        borderColor = BOARD_THEME.highlight.lastMove
         borderWidth = 1
       } else if (hasActiveDecayTimer) {
-        borderColor = "#ea580c" // Orange for decay timer
+        borderColor = BOARD_THEME.highlight.decay
         borderWidth = 1
+      } else if (isDraggingPiece && dragTargetSquare === square) {
+        borderColor = BOARD_THEME.highlight.selected
+        borderWidth = 2
       }
+
+      const squareBackground = isLight ? BOARD_THEME.lightSquare : BOARD_THEME.darkSquare
+      const coordinateColor = isLight ? BOARD_THEME.darkSquare : BOARD_THEME.lightSquare
+      const moveDotSize = squareSize * BOARD_THEME.moveDotScale
+      const captureIndicatorSize = squareSize * BOARD_THEME.captureIndicatorScale
 
       return (
         <View key={square} style={{ position: "relative" }}>
@@ -1316,13 +1515,13 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
               {
                 width: squareSize,
                 height: squareSize,
-                backgroundColor: isLight ? "#F0D9B5" : "#769656", // Chess.com colors
-                borderWidth: borderWidth,
-                borderColor: borderColor,
+                backgroundColor: squareBackground,
+                borderWidth,
+                borderColor,
               },
             ]}
             onPress={() => handleSquarePress(square)}
-          >
+         >
             {/* Coordinate labels */}
             {file === "a" && (
               <Text
@@ -1330,7 +1529,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
                   decayStyles.coordinateLabel,
                   decayStyles.rankLabel,
                   {
-                    color: isLight ? "#769656" : "#F0D9B5",
+                    color: coordinateColor,
                     fontSize: isSmallScreen ? 8 : 10,
                   },
                 ]}
@@ -1344,7 +1543,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
                   decayStyles.coordinateLabel,
                   decayStyles.fileLabel,
                   {
-                    color: isLight ? "#769656" : "#F0D9B5",
+                    color: coordinateColor,
                     fontSize: isSmallScreen ? 8 : 10,
                   },
                 ]}
@@ -1354,44 +1553,44 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
             )}
 
             {/* Piece */}
-            {piece && (
+            {pieceToRender && (
               <View
                 style={{
                   opacity: isFrozen ? 0.6 : 1,
                 }}
               >
-                {getPieceComponent(piece, pieceFontSize)}
+                {getPieceComponent(pieceToRender, pieceFontSize)}
               </View>
             )}
 
             {/* Frozen indicator */}
             {isFrozen && (
-              <View style={[decayStyles.frozenIndicator, { width: squareSize * 0.25, height: squareSize * 0.25 }]}>
-                <Text style={[decayStyles.frozenText, { fontSize: squareSize * 0.15 }]}>❄️</Text>
+              <View style={[decayStyles.frozenIndicator, { width: moveDotSize, height: moveDotSize }]}>
+                <Text style={[decayStyles.frozenText, { fontSize: moveDotSize * 0.6 }]}>❄️</Text>
               </View>
             )}
 
             {/* Move indicators */}
-            {isPossibleMove && !piece && (
+            {isPossibleMove && !piece && !isFrozen && (
               <View
                 style={[
                   decayStyles.possibleMoveDot,
                   {
-                    width: squareSize * 0.25,
-                    height: squareSize * 0.25,
-                    borderRadius: squareSize * 0.125,
+                    width: moveDotSize,
+                    height: moveDotSize,
+                    borderRadius: moveDotSize / 2,
                   },
                 ]}
               />
             )}
-            {isPossibleMove && piece && (
+            {isPossibleMove && piece && !isFrozen && (
               <View
                 style={[
                   decayStyles.captureIndicator,
                   {
-                    width: squareSize * 0.3,
-                    height: squareSize * 0.3,
-                    borderRadius: squareSize * 0.15,
+                    width: captureIndicatorSize,
+                    height: captureIndicatorSize,
+                    borderRadius: captureIndicatorSize / 2,
                   },
                 ]}
               />
@@ -1410,6 +1609,9 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       decayState,
       frozenPieces,
       handleSquarePress,
+      isDraggingPiece,
+      dragOriginSquare,
+      dragTargetSquare,
     ],
   )
 
@@ -1440,16 +1642,37 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
 
     return (
       <View style={decayStyles.boardContainer}>
-        <View style={decayStyles.board}>
-          {ranks.map((rank) => (
-            <View key={rank} style={decayStyles.row}>
-              {files.map((file) => renderSquare(file, rank))}
+        <View
+          style={{ width: boardSize, height: boardSize, position: "relative" }}
+          {...panResponder.panHandlers}
+        >
+          <View style={decayStyles.board}>
+            {ranks.map((rank) => (
+              <View key={rank} style={decayStyles.row}>
+                {files.map((file) => renderSquare(file, rank))}
+              </View>
+            ))}
+          </View>
+          {dragState.active && dragState.piece && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: dragState.x - squareSize / 2,
+                top: dragState.y - squareSize / 2,
+                width: squareSize,
+                height: squareSize,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              {getPieceComponent(dragState.piece, pieceFontSize)}
             </View>
-          ))}
+          )}
         </View>
       </View>
     )
-  }, [boardFlipped, renderSquare])
+  }, [boardFlipped, renderSquare, panResponder, dragState.active, dragState.piece, dragState.x, dragState.y])
 
   const renderPlayerInfo = useCallback(
     (color: "white" | "black") => {

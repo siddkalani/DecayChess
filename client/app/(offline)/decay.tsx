@@ -19,9 +19,10 @@ const DECAY_INCREMENT = 2000
 
 export default function DecayOffline() {
   const router = useRouter()
+  // Offline simplified timing: fixed 3:00 each, no increment
   const params = useLocalSearchParams<{ baseTime?: string; increment?: string }>()
-  const baseTime = useMemo(() => Math.max(0, Number(params.baseTime ?? 180000)), [params.baseTime])
-  const increment = useMemo(() => Math.max(0, Number(params.increment ?? 2000)), [params.increment])
+  const baseTime = 180000
+  const increment = 0
 
   const [game, setGame] = useState(() => new Chess())
   const [fen, setFen] = useState(game.fen())
@@ -178,9 +179,7 @@ export default function DecayOffline() {
     // Block moving frozen piece
     if (frozenSquares[activeColor].includes(m.from)) { Alert.alert('Frozen', 'This piece cannot move.'); return }
 
-    const now = Date.now()
-    const elapsed = now - turnStartRef.current
-    setTimers((prev) => { const next = { ...prev }; next[activeColor] = Math.max(0, next[activeColor] - elapsed); return next })
+    // Offline simple mode: do not adjust time on move; timers tick only during turn via interval
 
     const newGame = new Chess(game.fen())
     const targetPiece = newGame.get(m.to)
@@ -235,8 +234,7 @@ export default function DecayOffline() {
       return next
     })
 
-    // Increment post-move
-    if (increment > 0) setTimers((prev) => ({ ...prev, [activeColor]: prev[activeColor] + increment }))
+    // Increment applied above together with elapsed deduction
 
     // Commit
     setMoveHistory((prev) => [...prev, result])
@@ -468,4 +466,3 @@ export default function DecayOffline() {
 const styles = StyleSheet.create({
   container: { paddingTop: 0 },
 })
-

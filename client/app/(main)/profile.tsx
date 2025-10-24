@@ -187,11 +187,16 @@ export default function ProfilePage() {
     router.push('/choose');
   };
 
+  const handleOffline = () => {
+    router.push('/(offline)');
+  };
+
   return (
     <Layout
       onProfile={handleProfile}
       onLogout={handleLogout}
       onSelectHome={handleHome}
+      onSelectOffline={handleOffline}
       isChooseScreen={false}
       hideTopNav={true}
       activeBottomTab="menu"
