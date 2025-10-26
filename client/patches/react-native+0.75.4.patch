@@ -1,0 +1,22 @@
+diff --git a/node_modules/react-native/scripts/packager-reporter.js b/node_modules/react-native/scripts/packager-reporter.js
+index a3f5bd5..be4dc6b 100644
+--- a/node_modules/react-native/scripts/packager-reporter.js
++++ b/node_modules/react-native/scripts/packager-reporter.js
+@@ -11,7 +11,8 @@
+ 
+ const logPath = process.env.RCT_PACKAGER_LOG_PATH;
+ if (logPath != null && logPath !== '') {
+-  const JsonReporter = require('metro/src/lib/JsonReporter');
++  // Metro >=0.83 exports internals via the `private` subpath
++  const JsonReporter = require('metro/private/lib/JsonReporter');
+   const fs = require('fs');
+   const path = require('path');
+   module.exports = class extends JsonReporter {
+@@ -23,5 +24,6 @@ if (logPath != null && logPath !== '') {
+     }
+   };
+ } else {
+-  module.exports = require('metro/src/lib/TerminalReporter');
++  // Metro >=0.83 exports internals via the `private` subpath
++  module.exports = require('metro/private/lib/TerminalReporter');
+ }
