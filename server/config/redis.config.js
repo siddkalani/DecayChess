@@ -3,8 +3,10 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+
 const redisClient = createClient({
-  url: "redis://localhost:6379", // Load Redis URL from .env
+  url: REDIS_URL,
 });
 
 redisClient.on("connect", () => console.log("✅ Connected to Redis"));

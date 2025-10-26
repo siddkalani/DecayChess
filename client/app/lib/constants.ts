@@ -4,11 +4,22 @@
 // - iOS simulator: localhost maps to host machine
 // If you are on a physical device, replace HOST with your LAN IP (e.g., 192.168.x.x)
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-const HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+// Prefer Expo public envs when provided (injected at build time)
+const ENV_API = process.env.EXPO_PUBLIC_API_URL;
+const ENV_WS = process.env.EXPO_PUBLIC_WS_URL;
 
-export const API_BASE_URL = `http://${HOST}:3000/api`;
-export const WS_BASE_URL = `http://${HOST}:3000`;
+// Emulator/simulator-friendly defaults
+const DEFAULT_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+const DEFAULT_PORT = 3000;
+
+// Fallbacks when envs are not provided
+const FALLBACK_HTTP = `http://${DEFAULT_HOST}:${DEFAULT_PORT}`;
+const API_DEFAULT = `${FALLBACK_HTTP}/api`;
+
+export const API_BASE_URL = ENV_API || API_DEFAULT;
+export const WS_BASE_URL = ENV_WS || FALLBACK_HTTP;
 
 export const ROUTES = {
   AUTH: {

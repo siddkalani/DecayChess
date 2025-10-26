@@ -3,18 +3,20 @@
   "compilerOptions": {
     "strict": true,
     "module": "ESNext",
+    "jsx": "react-jsx",
+    "jsxImportSource": "nativewind",
     "allowJs": true,
     "forceConsistentCasingInFileNames": true,
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
     "**/*.js",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts",
     "nativewind-env.d.ts",
     "utils/socketManager.js"
   ]

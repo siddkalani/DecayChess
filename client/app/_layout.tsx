@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import React from "react";
 import * as SplashScreen from "expo-splash-screen";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 import "./styles/globals.css";
 import AnimatedSplash from "./components/ui/AnimatedSplash";
 
@@ -23,6 +24,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      <StatusBar style="light" backgroundColor="#23272A" translucent={false} />
       <Stack>
         <Stack.Screen name="Home" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />

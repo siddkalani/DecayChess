@@ -93,6 +93,7 @@ export default function Choose() {
   });
   const [isFetchingLivePlayers, setIsFetchingLivePlayers] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [enablePullToRefresh, setEnablePullToRefresh] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -189,6 +190,8 @@ export default function Choose() {
   }, [clearRefreshTimeout]);
 
   const handleRefresh = useCallback(() => {
+        // prevent multiple triggers while a refresh is ongoing
+    if (refreshing || isFetchingLivePlayers) return;
     setRefreshing(true);
     clearRefreshTimeout();
     refreshTimeoutRef.current = setTimeout(() => {
@@ -277,7 +280,7 @@ export default function Choose() {
 
   const handleLogout = async () => {
     try {
-      await AsyncStorage.removeItem("user");
+      await AsyncStorage.multiRemove(["user", "token"]);
       router.push("/(auth)/login");
     } catch (e) {
       console.error("Error logging out:", e);
@@ -329,13 +332,29 @@ export default function Choose() {
           <ScrollView
             contentContainerStyle={chooseScreenStyles.scrollViewContent}
             showsVerticalScrollIndicator={false}
+            // Reduce iOS inertia; avoid long elastic feel
+            decelerationRate="fast"
+            scrollEventThrottle={16}
+            bounces={false}
+            alwaysBounceVertical={false}
+            overScrollMode="never"
+            onScroll={(e) => {
+              const y = e.nativeEvent.contentOffset?.y ?? 0;
+              // Only allow pull-to-refresh when fully scrolled to the top
+              const shouldEnable = y <= 0;
+              if (shouldEnable !== enablePullToRefresh) setEnablePullToRefresh(shouldEnable);
+            }}
             refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={handleRefresh}
-                tintColor="#00A862"
-                colors={["#00A862"]}
-              />
+              enablePullToRefresh ? (
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  enabled={!refreshing}
+                  tintColor="#00A862"
+                  colors={["#00A862"]}
+                  progressViewOffset={24}
+                />
+              ) : undefined
             }
           >
             {/* Navigation Buttons */}
@@ -392,7 +411,14 @@ export default function Choose() {
         <View style={chooseScreenStyles.modalOverlay}>
           <View style={chooseScreenStyles.rulesModal}>
             <Text style={chooseScreenStyles.rulesTitle}>Game Rules</Text>
-            <ScrollView style={chooseScreenStyles.rulesContent}>
+            <ScrollView
+              style={chooseScreenStyles.rulesContent}
+              showsVerticalScrollIndicator={false}
+              decelerationRate="fast"
+              bounces={false}
+              alwaysBounceVertical={false}
+              overScrollMode="never"
+            >
               <RulesModalContent />
             </ScrollView>
             <TouchableOpacity style={chooseScreenStyles.closeRulesButton} onPress={closeRulesModal}>
@@ -485,6 +511,10 @@ function ChooseScreenSkeleton({ refreshing, onRefresh }: { refreshing: boolean; 
     <ScrollView
       contentContainerStyle={chooseScreenStyles.scrollViewContent}
       showsVerticalScrollIndicator={false}
+      decelerationRate="fast"
+      scrollEventThrottle={16}
+      overScrollMode="never"
+      bounces={false}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}

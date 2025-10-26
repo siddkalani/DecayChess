@@ -1,4 +1,4 @@
-package com.anonymous.chess
+package com.creaovate.chess
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

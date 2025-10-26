@@ -1,4 +1,4 @@
-package com.anonymous.chess
+package com.creaovate.chess
 
 import android.app.Application
 import android.content.res.Configuration

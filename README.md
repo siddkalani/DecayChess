@@ -23,6 +23,10 @@ A modern chess application built with React Native (Expo) for the frontend and N
 - **Socket.IO Client** for real-time communication
 - **Axios** for API calls
 
+Environment variables (Expo):
+- `EXPO_PUBLIC_API_URL` – full API base including `/api` (e.g., `http://192.168.1.100:3000/api`)
+- `EXPO_PUBLIC_WS_URL` – WebSocket base, no `/api` (e.g., `http://192.168.1.100:3000`)
+
 ### Backend (Server)
 - **Node.js** with Express
 - **MongoDB** with Mongoose
@@ -74,6 +78,11 @@ Edit the `.env` file in the server directory:
 PORT=3000
 MONGO_URI=mongodb://127.0.0.1:27017/Chess
 SECRET_KEY=your_secret_key_here
+# Allow Expo devtools and localhost by default; override for production
+CORS_ALLOW_ALL=false
+CORS_ALLOWED_ORIGINS=http://localhost:8081,exp://localhost,exp://127.0.0.1
+# Optional: Redis connection
+REDIS_URL=redis://127.0.0.1:6379
 ```
 
 #### Start Required Services
@@ -109,6 +118,13 @@ npm install
 
 # Start the Expo development server
 npm start
+```
+
+Create a client `.env` using the example and point it to your server:
+
+```bash
+cp client/.env.example client/.env
+# Edit EXPO_PUBLIC_API_URL and EXPO_PUBLIC_WS_URL to your LAN/IP or domain
 ```
 
 #### Running on Different Platforms
@@ -222,6 +238,8 @@ expo build:android
 expo build:ios
 expo build:web
 ```
+
+For EAS builds or production bundles, Expo injects `EXPO_PUBLIC_*` envs at build time. Ensure you set `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_WS_URL` to your public endpoints before building.
 
 ## 🚀 Deployment
 

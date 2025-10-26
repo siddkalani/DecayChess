@@ -1,20 +1,29 @@
 # Dependencies
 node_modules/
-*/node_modules/
+client/node_modules/
+server/node_modules/
 
 # Environment variables
 .env
-*/.env
+*.env
+client/.env
+server/.env
 
 # Build outputs
 dist/
 build/
-*/dist/
-*/build/
+client/dist/
+client/dist-bundle/
+client/web-build/
+client/build-*.apk
+client/android/app/build/
+client/ios/build/
+client/ios/Pods/
 
 # Expo
 .expo/
-*/expo/
+client/.expo/
+client/.expo-shared/
 
 # React Native
 *.apk
@@ -33,3 +42,5 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.DS_Store
+.history/

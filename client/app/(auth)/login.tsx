@@ -12,6 +12,25 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
+  // If already authenticated, skip login screen entirely
+  React.useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const [token, user] = await Promise.all([
+          AsyncStorage.getItem('token'),
+          AsyncStorage.getItem('user'),
+        ]);
+        if (mounted && token && user) {
+          router.replace('/(main)/choose');
+        }
+      } catch {}
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
+
   const handleLogin = async () => {
     if (isLoading) {
       return;
