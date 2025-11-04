@@ -1,7 +1,7 @@
 import redisClient from '../config/redis.config.js';
 import { leaveQueue } from './matchmaking.controller.js'; // Import existing matchmaking functions
 import { createGameSession } from './session.controller.js'; // Import createGameSession
-import UserModel from '../models/User.model.js';
+import UserModel from '../models/user.model.js';
 import TournamentModel from '../models/tournament.model.js'; // Import Tournament model
 // NEW IMPORTS for flexible fallback
 import { REGULAR_QUEUE_KEYS_BY_VARIANT, REGULAR_USER_DATA_KEY } from './matchmaking.controller.js';

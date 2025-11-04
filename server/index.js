@@ -7,7 +7,6 @@ import { Server } from "socket.io";
 import bodyParser from "body-parser";
 import logger from "morgan";
 import cron from "node-cron";
-
 import authRoutes from "./router/auth.route.js";
 import websocketRoutes from "./Websockets/websocket.controller.js";
 import { createTournament } from "./controllers/tournament.controller.js";

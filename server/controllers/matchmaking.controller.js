@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import UserModel from '../models/User.model.js';
+import UserModel from '../models/user.model.js';
 import redisClient from '../config/redis.config.js';
 import { createGameSession } from './session.controller.js';
 // import gameModel from '../models/game.model.js'; // Commented out as per original code

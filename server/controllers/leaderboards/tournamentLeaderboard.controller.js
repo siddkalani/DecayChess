@@ -1,5 +1,5 @@
 import tournamentModel from "../../models/tournament.model.js";
-import UserModel from "../../models/User.model.js";
+import UserModel from "../../models/user.model.js";
 
 
 // Get tournament leaderboard with user details (prioritizes latest tournament)

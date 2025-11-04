@@ -16,7 +16,7 @@ import {
 } from "../controllers/matchmaking.controller.js";
 import { createTournament, getActiveTournamentDetails, joinTournament, leaveTournament } from "../controllers/tournament.controller.js";
 import tournamentModel from "../models/tournament.model.js";
-import UserModel from "../models/User.model.js";
+import UserModel from "../models/user.model.js";
 import { convertBigIntToNumber } from "../validations/classic/standard.js";
 
 dotenv.config();

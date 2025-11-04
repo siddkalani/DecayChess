@@ -1,4 +1,4 @@
-import UserModel from "../../models/User.model.js";
+import UserModel from "../../models/user.model.js";
 
 export const v1LeaderboardController = async(req, res) => {
         try {
