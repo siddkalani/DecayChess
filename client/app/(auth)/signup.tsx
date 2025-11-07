@@ -37,7 +37,7 @@ export default function Signup() {
     if (router.canGoBack()) {
       router.back();
     } else {
-      router.replace('/Home');
+      router.replace('/(auth)/login');
     }
   };
 
@@ -46,11 +46,11 @@ export default function Signup() {
       <View style={{ flex: 1, paddingHorizontal: 20 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 16 }}>
           <TouchableOpacity
-            onPress={handleGoBack}
+            // onPress={handleGoBack}
             style={{ paddingVertical: 6, paddingHorizontal: 4 }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text style={{ color: "#00A862", fontSize: 18 }}>←</Text>
+            <Text style={{ color: "#00A862", fontSize: 18 }}></Text>
           </TouchableOpacity>
           <Text style={{ color: "#fff", fontSize: 20, fontWeight: "bold" }}>Sign Up</Text>
           <View style={{ width: 24 }} />

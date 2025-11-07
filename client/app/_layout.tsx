@@ -35,7 +35,7 @@ export default function RootLayout() {
       {showAnimatedSplash && (
         <AnimatedSplash
           onFinish={() => setShowAnimatedSplash(false)}
-          logoSource={require("../assets/logo.png")}
+          logoSource={require("../assets/logo2.png")}
         />
       )}
     </SafeAreaProvider>

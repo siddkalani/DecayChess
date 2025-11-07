@@ -1,6 +1,6 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Image, Text, View } from "react-native"; // Import Alert
+import { ActivityIndicator, Alert, BackHandler, Image, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Socket } from "socket.io-client";
 import ClassicChess from "../(game)/variants/classic";
@@ -13,6 +13,7 @@ import { GameState } from "../lib/types/gamestate"; // Import GameState type
 
 export default function MatchMaking() {
   const router = useRouter();
+  const navigation = useNavigation();
   // For MatchMaking, variant and subvariant *are* chosen by the player via params
   const { variant, subvariant, userId } = useLocalSearchParams<{ variant: string; subvariant?: string, userId: string }>();
 
@@ -168,6 +169,38 @@ export default function MatchMaking() {
 
     return () => clearInterval(interval);
   }, [timer, opponent, isMatchFound, router]);
+
+  const blockBackNavigation = !isMatchFound;
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!blockBackNavigation) {
+        return undefined;
+      }
+
+      const onBeforeRemove = (event: any) => {
+        const actionType = event?.data?.action?.type;
+        if (actionType === "GO_BACK" || actionType === "POP" || actionType === "POP_TO_TOP") {
+          event.preventDefault();
+        }
+      };
+
+      const unsubscribe = navigation.addListener("beforeRemove", onBeforeRemove);
+      return () => {
+        unsubscribe();
+      };
+    }, [navigation, blockBackNavigation])
+  );
+
+  useEffect(() => {
+    if (!blockBackNavigation) {
+      return;
+    }
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => {
+      subscription.remove();
+    };
+  }, [blockBackNavigation]);
 
   // If match is found and game state is available, show the chess game
   if (isMatchFound && gameState && gameSocket) {

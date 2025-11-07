@@ -15,7 +15,7 @@ export default function Index() {
         if (token && user) {
           router.replace('/(main)/choose');
         } else {
-          router.replace('/(auth)/login');
+          router.replace('/(auth)/signup');
         }
       }, 100);
     };

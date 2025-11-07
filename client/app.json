@@ -1,6 +1,7 @@
 {
   "expo": {
-    "name": "chess",
+    "name": "decaychess",
+    "icon": "./assets/logo.png",
     "userInterfaceStyle": "automatic",
     "slug": "chess",
     "version": "1.0.0",
@@ -15,11 +16,17 @@
         "projectId": "7303de69-6576-45c4-8961-57e25bb6d98b"
       }
     },
+    "splash": {
+      "image": "./assets/logo2.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B3D2E"
+    },
     "android": {
       "package": "com.creaovate.chess"
     },
     "ios": {
-      "bundleIdentifier": "com.creaovate.chess"
+      "bundleIdentifier": "com.creaovate.chess",
+      "icon": "./assets/logo.png"
     }
   }
 }

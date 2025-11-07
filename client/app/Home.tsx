@@ -1,22 +1,36 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from "expo-router";
 import React from "react";
-import { Image, Text, TouchableOpacity, View } from "react-native";
 
 export default function Home() {
   const router = useRouter();
-  return (
-    <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#23272A" }}>
-      <Image
-        source={{ uri: "https://www.chess.com/bundles/web/images/offline-play/standardboard.84a92436.png" }}
-        style={{ width: 120, height: 120, marginBottom: 32, borderRadius: 16 }}
-      />
-      <Text style={{ color: "#fff", fontSize: 32, fontWeight: "bold", marginBottom: 24 }}>Chess Game</Text>
-      <TouchableOpacity
-        style={{ backgroundColor: "#00A862", paddingVertical: 16, paddingHorizontal: 48, borderRadius: 30, marginBottom: 16 }}
-        onPress={() => router.push("/(auth)/signup")}
-      >
-        <Text style={{ color: "#fff", fontSize: 20, fontWeight: "bold" }}>Start</Text>
-      </TouchableOpacity>
-    </View>
-  );
+
+  React.useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const [token, user] = await Promise.all([
+          AsyncStorage.getItem('token'),
+          AsyncStorage.getItem('user'),
+        ]);
+        if (!isMounted) {
+          return;
+        }
+        if (token && user) {
+          router.replace('/(main)/choose');
+          return;
+        }
+      } catch {
+        // Ignore storage errors and fall back to signup screen.
+      }
+      if (isMounted) {
+        router.replace('/(auth)/signup');
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+
+  return null;
 }

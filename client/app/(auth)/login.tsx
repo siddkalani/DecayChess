@@ -63,7 +63,7 @@ export default function Login() {
     if (router.canGoBack()) {
       router.back();
     } else {
-      router.replace('/Home');
+      router.replace('/(auth)/signup');
     }
   };
 
