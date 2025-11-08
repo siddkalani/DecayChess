@@ -309,6 +309,14 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     }
   }, [socket, playerColor])
 
+  // Clear possible moves when it's no longer the player's turn
+  useEffect(() => {
+    if (!isMyTurn) {
+      setPossibleMoves([])
+      setSelectedSquare(null)
+    }
+  }, [isMyTurn])
+
   useEffect(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -996,6 +1004,8 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
   // Render board using shared component
   const renderBoard = useCallback(() => {
     const pieceFontSize = squareSize * BOARD_THEME.pieceScale
+    // Only show possible moves if it's the current player's turn
+    const visiblePossibleMoves = isMyTurn ? possibleMoves : []
     return (
       <ChessBoard
         boardSize={boardSize}
@@ -1004,7 +1014,7 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
         pieceSize={pieceFontSize}
         boardFlipped={boardFlipped}
         selectedSquare={selectedSquare}
-        possibleMoves={possibleMoves}
+        possibleMoves={visiblePossibleMoves}
         dragState={dragState}
         dragTargetSquare={dragTargetSquare}
         lastMove={lastMove}
@@ -1020,6 +1030,7 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     boardFlipped,
     selectedSquare,
     possibleMoves,
+    isMyTurn,
     dragState,
     dragTargetSquare,
     lastMove,

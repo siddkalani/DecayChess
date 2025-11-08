@@ -1097,6 +1097,14 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     Alert.alert("Game Warning", data.message || "An unexpected warning occurred.")
   }, [])
 
+  // Clear possible moves when it's no longer the player's turn
+  useEffect(() => {
+    if (!isMyTurn) {
+      setPossibleMoves([])
+      setSelectedSquare(null)
+    }
+  }, [isMyTurn])
+
   // Set up socket event listeners
   useEffect(() => {
     if (!socket) return
@@ -1492,6 +1500,8 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
   // Render board using shared component
   const renderBoard = useCallback(() => {
     const coordinateFontSize = isSmallScreen ? 8 : 10
+    // Only show possible moves if it's the current player's turn
+    const visiblePossibleMoves = isMyTurn ? possibleMoves : []
     return (
       <ChessBoard
         boardSize={boardSize}
@@ -1500,7 +1510,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         pieceSize={pieceFontSize}
         boardFlipped={boardFlipped}
         selectedSquare={selectedSquare}
-        possibleMoves={possibleMoves}
+        possibleMoves={visiblePossibleMoves}
         dragState={dragState}
         dragTargetSquare={dragTargetSquare}
         lastMove={lastMove}
@@ -1518,6 +1528,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     boardFlipped,
     selectedSquare,
     possibleMoves,
+    isMyTurn,
     dragState,
     dragTargetSquare,
     lastMove,

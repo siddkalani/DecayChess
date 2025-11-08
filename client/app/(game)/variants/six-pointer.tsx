@@ -359,6 +359,14 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     }
   }, [socket, playerColor])
 
+  // Clear possible moves when it's no longer the player's turn
+  useEffect(() => {
+    if (!isMyTurn) {
+      setPossibleMoves([])
+      setSelectedSquare(null)
+    }
+  }, [isMyTurn])
+
   const handleGameMove = (data: any) => {
     console.log("[MOVE] Move received:", data)
     if (data && data.gameState) {
@@ -1344,6 +1352,8 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
   // Render board using shared component
   const renderBoard = useCallback(() => {
     const pieceFontSize = squareSize * BOARD_THEME.pieceScale
+    // Only show possible moves if it's the current player's turn
+    const visiblePossibleMoves = isMyTurn ? possibleMoves : []
     return (
       <ChessBoard
         boardSize={boardSize}
@@ -1352,7 +1362,7 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
         pieceSize={pieceFontSize}
         boardFlipped={boardFlipped}
         selectedSquare={selectedSquare}
-        possibleMoves={possibleMoves}
+        possibleMoves={visiblePossibleMoves}
         dragState={dragState}
         dragTargetSquare={dragTargetSquare}
         lastMove={lastMove}
@@ -1368,6 +1378,7 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     boardFlipped,
     selectedSquare,
     possibleMoves,
+    isMyTurn,
     dragState,
     dragTargetSquare,
     lastMove,

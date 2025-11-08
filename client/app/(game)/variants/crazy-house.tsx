@@ -165,6 +165,14 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
     }
   }, [socket, playerColor])
 
+  // Clear possible moves when it's no longer the player's turn
+  useEffect(() => {
+    if (!isMyTurn) {
+      setPossibleMoves([])
+      setSelectedSquare(null)
+    }
+  }, [isMyTurn])
+
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
 
@@ -930,6 +938,8 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
   // Render board using shared component
   function renderBoard() {
     const pieceFontSize = squareSize * BOARD_THEME.pieceScale
+    // Only show possible moves if it's the current player's turn
+    const visiblePossibleMoves = isMyTurn ? possibleMoves : []
     return (
       <View style={[variantStyles.boardContainer, { width: boardDimension, height: boardDimension }]}>
         <ChessBoard
@@ -939,7 +949,7 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
           pieceSize={pieceFontSize}
           boardFlipped={boardFlipped}
           selectedSquare={selectedSquare}
-          possibleMoves={possibleMoves}
+          possibleMoves={visiblePossibleMoves}
           dragState={dragState}
           dragTargetSquare={dragTargetSquare}
           lastMove={lastMove}
