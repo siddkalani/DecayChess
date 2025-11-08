@@ -1014,12 +1014,25 @@ export default function CrazyHouseChessGame({ initialGameState, userId, onNaviga
               </TouchableOpacity>
             </View>
             <ScrollView style={variantStyles.moveHistoryScroll}>
-              {moves.map((move, idx) => (
-                <View key={idx} style={variantStyles.moveRow}>
-                  <Text style={variantStyles.moveNumber}>{idx + 1}.</Text>
-                  <Text style={variantStyles.moveText}>{move.san || `${move.from || ""}-${move.to || ""}`}</Text>
+              {moves && moves.length > 0 ? (
+                moves.map((move, idx) => {
+                  // Handle both string and object move formats
+                  const moveText = typeof move === 'string' 
+                    ? move 
+                    : (move?.san || (move?.from && move?.to ? `${move.from}-${move.to}` : `Move ${idx + 1}`))
+                  
+                  return (
+                    <View key={idx} style={variantStyles.moveRow}>
+                      <Text style={variantStyles.moveNumber}>{idx + 1}.</Text>
+                      <Text style={variantStyles.moveText}>{moveText}</Text>
+                    </View>
+                  )
+                })
+              ) : (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#b0b3b8', fontSize: 16 }}>No moves yet</Text>
                 </View>
-              ))}
+              )}
             </ScrollView>
           </View>
         </View>

@@ -5,8 +5,8 @@ import { Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const timeControls = [
-  { label: "Crazy House Standard", description: "3+2 (3 min, 2s increment)" },
-  { label: "Crazy House with Timer", description: "3 min, 2s increment but each captured piece has a 10-second limit to be dropped" },
+  { label: "Crazy House Standard", description: "3+2 (3 min, 2s increment)", disabled: false },
+  { label: "Crazy House with Timer", description: "3 min, 2s increment but each captured piece has a 10-second limit to be dropped", disabled: true, comingSoon: true },
 ];
 
 export default function CrazyTimeControl() {
@@ -20,7 +20,10 @@ export default function CrazyTimeControl() {
     if (!userId) return;
 
     const tc = timeControls[selected];
-    if (!tc) return;
+    if (!tc || tc.disabled) {
+      // Don't proceed if the selected variant is disabled
+      return;
+    }
     const subvariant = tc.label === 'Crazy House Standard' ? 'standard' : 'withTimer';
 
     // Briefly show connecting state and ensure socket exists
@@ -71,46 +74,75 @@ export default function CrazyTimeControl() {
           <Text style={{ color: "#fff", fontSize: 28, fontWeight: "bold", marginBottom: 32, textAlign: "center" }}>
             Choose Time Control
           </Text>
-          {timeControls.map((tc, idx) => (
-            <TouchableOpacity
-              key={tc.label}
-              onPress={() => setSelected(idx)}
-              style={{
-                backgroundColor: selected === idx ? "#00A862" : "#2C2F33",
-                borderRadius: 14,
-                padding: 22,
-                marginBottom: 18,
-                width: 320,
-                alignItems: "center",
-                borderWidth: selected === idx ? 2 : 0,
-                borderColor: selected === idx ? "#fff" : undefined,
-                shadowColor: "#000",
-                shadowOpacity: 0.18,
-                shadowRadius: 7,
-                elevation: 2,
-              }}
-            >
-              <Text style={{ color: selected === idx ? "#fff" : "#00A862", fontSize: 22, fontWeight: "bold", marginBottom: 6 }}>
-                {tc.label}
-              </Text>
-              <Text style={{ color: "#b0b3b8", fontSize: 16 }}>{tc.description}</Text>
-            </TouchableOpacity>
-          ))}
+          {timeControls.map((tc, idx) => {
+            const isDisabled = tc.disabled || false;
+            const isSelected = selected === idx;
+            const isComingSoon = tc.comingSoon || false;
+            
+            return (
+              <TouchableOpacity
+                key={tc.label}
+                onPress={() => {
+                  if (!isDisabled) {
+                    setSelected(idx);
+                  }
+                }}
+                disabled={isDisabled}
+                style={{
+                  backgroundColor: isSelected && !isDisabled ? "#00A862" : isDisabled ? "#1A1A1A" : "#2C2F33",
+                  borderRadius: 14,
+                  padding: 22,
+                  marginBottom: 18,
+                  width: 320,
+                  alignItems: "center",
+                  borderWidth: isSelected && !isDisabled ? 2 : 0,
+                  borderColor: isSelected && !isDisabled ? "#fff" : undefined,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.18,
+                  shadowRadius: 7,
+                  elevation: 2,
+                  opacity: isDisabled ? 0.6 : 1,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+                  <Text style={{ color: isSelected && !isDisabled ? "#fff" : isDisabled ? "#888" : "#00A862", fontSize: 22, fontWeight: "bold" }}>
+                    {tc.label}
+                  </Text>
+                  {isComingSoon && (
+                    <View style={{ 
+                      backgroundColor: "#FFA500", 
+                      paddingHorizontal: 8, 
+                      paddingVertical: 4, 
+                      borderRadius: 8, 
+                      marginLeft: 10 
+                    }}>
+                      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "bold" }}>
+                        Coming Soon
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={{ color: isDisabled ? "#666" : "#b0b3b8", fontSize: 16, textAlign: "center" }}>
+                  {tc.description}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
           <TouchableOpacity
             style={{
-              backgroundColor: "#00A862",
+              backgroundColor: timeControls[selected]?.disabled ? "#666" : "#00A862",
               borderRadius: 10,
               paddingVertical: 14,
               paddingHorizontal: 40,
               marginTop: 30,
-              opacity: socketConnecting ? 0.6 : 1,
+              opacity: socketConnecting || timeControls[selected]?.disabled ? 0.6 : 1,
               width: "100%",
             }}
             onPress={handleSubVariantSelect}
-            disabled={socketConnecting}
+            disabled={socketConnecting || timeControls[selected]?.disabled}
           >
             <Text style={{ color: "#fff", fontSize: 18, fontWeight: "bold", textAlign: "center" }}>
-              {socketConnecting ? "Connecting..." : "Continue"}
+              {socketConnecting ? "Connecting..." : timeControls[selected]?.disabled ? "Coming Soon" : "Continue"}
             </Text>
           </TouchableOpacity>
         </View>

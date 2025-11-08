@@ -4,7 +4,7 @@ import { getPieceComponent, ChessBoard, type DragState, createDecayTimerOverlay,
 import { getSocketInstance } from "@/utils/socketManager"
 import { useRouter } from "expo-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Dimensions, FlatList, Modal, PanResponder, Text, TouchableOpacity, View } from "react-native"
+import { Alert, Dimensions, FlatList, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
 import { unstable_batchedUpdates } from "react-native"
 import type { Socket } from "socket.io-client"
 import { decayStyles, variantStyles } from "@/app/lib/styles"
@@ -84,7 +84,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
   const [isMyTurn, setIsMyTurn] = useState(false)
   const [playerColor, setPlayerColor] = useState<"white" | "black">("white")
   const [boardFlipped, setBoardFlipped] = useState(false)
-  const [moveHistory, setMoveHistory] = useState<string[]>([])
+  const [moveHistory, setMoveHistory] = useState<(string | { san?: string; from?: string; to?: string })[]>([])
   const [showMoveHistory, setShowMoveHistory] = useState(false)
   const [promotionModal, setPromotionModal] = useState<{
     visible: boolean
@@ -1602,10 +1602,26 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     const moves = moveHistory
     const movePairs = []
     for (let i = 0; i < moves.length; i += 2) {
+      // Handle both string and object move formats
+      const whiteMove = moves[i]
+      const blackMove = moves[i + 1]
+      
+      const whiteMoveStr = typeof whiteMove === 'string' 
+        ? whiteMove 
+        : (typeof whiteMove === 'object' && whiteMove !== null 
+          ? (whiteMove.san || (whiteMove.from && whiteMove.to ? `${whiteMove.from}-${whiteMove.to}` : ''))
+          : '')
+      
+      const blackMoveStr = typeof blackMove === 'string' 
+        ? blackMove 
+        : (typeof blackMove === 'object' && blackMove !== null
+          ? (blackMove.san || (blackMove.from && blackMove.to ? `${blackMove.from}-${blackMove.to}` : ''))
+          : '')
+
       movePairs.push({
         moveNumber: Math.floor(i / 2) + 1,
-        white: moves[i],
-        black: moves[i + 1] || "",
+        white: whiteMoveStr || "",
+        black: blackMoveStr || "",
       })
     }
 
@@ -1620,13 +1636,19 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
               </TouchableOpacity>
             </View>
             <ScrollView style={decayStyles.moveHistoryScroll}>
-              {movePairs.map((pair, index) => (
-                <View key={index} style={decayStyles.moveRow}>
-                  <Text style={decayStyles.moveNumber}>{pair.moveNumber}.</Text>
-                  <Text style={decayStyles.moveText}>{pair.white}</Text>
-                  <Text style={decayStyles.moveText}>{pair.black}</Text>
+              {movePairs.length > 0 ? (
+                movePairs.map((pair, index) => (
+                  <View key={index} style={decayStyles.moveRow}>
+                    <Text style={decayStyles.moveNumber}>{pair.moveNumber}.</Text>
+                    <Text style={decayStyles.moveText}>{pair.white}</Text>
+                    <Text style={decayStyles.moveText}>{pair.black}</Text>
+                  </View>
+                ))
+              ) : (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#b0b3b8', fontSize: 16 }}>No moves yet</Text>
                 </View>
-              ))}
+              )}
             </ScrollView>
           </View>
         </View>

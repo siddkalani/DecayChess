@@ -37,8 +37,8 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   logo: {
-    width: 280,
-    height: 280,
+    width: 360,
+    height: 360,
     borderRadius: 20,
   },
 });

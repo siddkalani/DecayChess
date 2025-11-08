@@ -1074,10 +1074,22 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     const moves = moveHistory
     const movePairs = []
     for (let i = 0; i < moves.length; i += 2) {
+      // Handle both string and object move formats
+      const whiteMove = moves[i]
+      const blackMove = moves[i + 1]
+      
+      const whiteMoveStr = typeof whiteMove === 'string' 
+        ? whiteMove 
+        : (whiteMove?.san || (whiteMove?.from && whiteMove?.to ? `${whiteMove.from}-${whiteMove.to}` : ''))
+      
+      const blackMoveStr = typeof blackMove === 'string' 
+        ? blackMove 
+        : (blackMove?.san || (blackMove?.from && blackMove?.to ? `${blackMove.from}-${blackMove.to}` : ''))
+
       movePairs.push({
         moveNumber: Math.floor(i / 2) + 1,
-        white: moves[i],
-        black: moves[i + 1] || "",
+        white: whiteMoveStr || "",
+        black: blackMoveStr || "",
       })
     }
 
@@ -1092,13 +1104,19 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
               </TouchableOpacity>
             </View>
             <ScrollView style={variantStyles.moveHistoryScroll}>
-              {movePairs.map((pair, index) => (
-                <View key={index} style={variantStyles.moveRow}>
-                  <Text style={variantStyles.moveNumber}>{pair.moveNumber}.</Text>
-                  <Text style={variantStyles.moveText}>{pair.white}</Text>
-                  <Text style={variantStyles.moveText}>{pair.black}</Text>
+              {movePairs.length > 0 ? (
+                movePairs.map((pair, index) => (
+                  <View key={index} style={variantStyles.moveRow}>
+                    <Text style={variantStyles.moveNumber}>{pair.moveNumber}.</Text>
+                    <Text style={variantStyles.moveText}>{pair.white}</Text>
+                    <Text style={variantStyles.moveText}>{pair.black}</Text>
+                  </View>
+                ))
+              ) : (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#b0b3b8', fontSize: 16 }}>No moves yet</Text>
                 </View>
-              ))}
+              )}
             </ScrollView>
           </View>
         </View>

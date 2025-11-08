@@ -254,10 +254,11 @@ export const decayStyles = StyleSheet.create({
     fontWeight: "500",
   },
   modalOverlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0, 0, 0, 0.8)",
     justifyContent: "center",
     alignItems: "center",
+    zIndex: 10000,
   },
   moveHistoryModal: {
     backgroundColor: "#262421",
