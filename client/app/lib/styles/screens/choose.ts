@@ -173,4 +173,8 @@ export const chooseScreenStyles = StyleSheet.create({
     marginTop: SPACING.lg,
     textAlign: 'left',
   },
+  decayShowcaseWrapper: {
+    marginTop: SPACING.xl,
+    marginBottom: SPACING.xl,
+  },
 })

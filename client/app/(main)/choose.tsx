@@ -6,19 +6,49 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
+import type { ScrollViewProps } from "react-native";
 import { shouldHideNavigation } from "../../utils/navigationState";
 import Layout from '../components/layout/Layout';
+import DecayShowcase from '../components/ui/DecayShowcase';
 import VariantCard from '../components/ui/VariantCard';
 import Skeleton from "../components/ui/Skeleton";
 import TournamentScreen from "./tournament";
 import { chooseScreenStyles } from "../lib/styles/screens";
+
+const isIOS = Platform.OS === "ios";
+const isAndroid = Platform.OS === "android";
+const isWeb = Platform.OS === "web";
+
+const smoothScrollProps: Partial<ScrollViewProps> = {
+  showsVerticalScrollIndicator: false,
+  scrollEventThrottle: 16,
+  ...(isIOS
+    ? {
+        decelerationRate: 0.992,
+        bounces: true,
+        alwaysBounceVertical: true,
+      }
+    : {}),
+  ...(isAndroid
+    ? {
+        decelerationRate: "fast" as const,
+        overScrollMode: "never" as const,
+        nestedScrollEnabled: true,
+        bounces: false,
+        alwaysBounceVertical: false,
+      }
+    : {}),
+};
+
+const canUsePullToRefresh = !isWeb;
 
 export default function Choose() {
   const router = useRouter();
@@ -93,7 +123,7 @@ export default function Choose() {
   });
   const [isFetchingLivePlayers, setIsFetchingLivePlayers] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [enablePullToRefresh, setEnablePullToRefresh] = useState(true);
+  const [enablePullToRefresh, setEnablePullToRefresh] = useState(canUsePullToRefresh);
   const [refreshKey, setRefreshKey] = useState(0);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -330,22 +360,19 @@ export default function Choose() {
           <ChooseScreenSkeleton refreshing={refreshing} onRefresh={handleRefresh} />
         ) : (
           <ScrollView
+            {...smoothScrollProps}
             contentContainerStyle={chooseScreenStyles.scrollViewContent}
-            showsVerticalScrollIndicator={false}
-            // Reduce iOS inertia; avoid long elastic feel
-            decelerationRate="fast"
-            scrollEventThrottle={16}
-            bounces={false}
-            alwaysBounceVertical={false}
-            overScrollMode="never"
             onScroll={(e) => {
+              if (!canUsePullToRefresh) {
+                return;
+              }
               const y = e.nativeEvent.contentOffset?.y ?? 0;
               // Only allow pull-to-refresh when fully scrolled to the top
               const shouldEnable = y <= 0;
               if (shouldEnable !== enablePullToRefresh) setEnablePullToRefresh(shouldEnable);
             }}
             refreshControl={
-              enablePullToRefresh ? (
+              enablePullToRefresh && canUsePullToRefresh ? (
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={handleRefresh}
@@ -368,6 +395,10 @@ export default function Choose() {
             </View>
 
             {/* Heading */}
+            <View style={chooseScreenStyles.decayShowcaseWrapper}>
+              <DecayShowcase />
+            </View>
+
             <Text style={chooseScreenStyles.heading}>Choose Variant</Text>
             <Text style={{ color: "#b0b3b8", fontSize: 14, marginBottom: 16 }}>
               Live player counts update in real time
@@ -413,11 +444,7 @@ export default function Choose() {
             <Text style={chooseScreenStyles.rulesTitle}>Game Rules</Text>
             <ScrollView
               style={chooseScreenStyles.rulesContent}
-              showsVerticalScrollIndicator={false}
-              decelerationRate="fast"
-              bounces={false}
-              alwaysBounceVertical={false}
-              overScrollMode="never"
+              {...smoothScrollProps}
             >
               <RulesModalContent />
             </ScrollView>
@@ -509,19 +536,17 @@ function RulesModalContent() {
 function ChooseScreenSkeleton({ refreshing, onRefresh }: { refreshing: boolean; onRefresh: () => void }) {
   return (
     <ScrollView
+      {...smoothScrollProps}
       contentContainerStyle={chooseScreenStyles.scrollViewContent}
-      showsVerticalScrollIndicator={false}
-      decelerationRate="fast"
-      scrollEventThrottle={16}
-      overScrollMode="never"
-      bounces={false}
       refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor="#00A862"
-          colors={["#00A862"]}
-        />
+        canUsePullToRefresh ? (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#00A862"
+            colors={["#00A862"]}
+          />
+        ) : undefined
       }
     >
       <View style={chooseScreenStyles.navButtonsContainer}>

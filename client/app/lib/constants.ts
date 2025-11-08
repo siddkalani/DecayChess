@@ -1,26 +1,38 @@
-// App constants
-// Resolve host for API and WebSocket based on platform
-// - Android emulator: 10.0.2.2 maps to host machine
-// - iOS simulator: localhost maps to host machine
-// If you are on a physical device, replace HOST with your LAN IP (e.g., 192.168.x.x)
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
 
-// Prefer Expo public envs when provided (injected at build time)
-const ENV_API = process.env.EXPO_PUBLIC_API_URL;
-const ENV_WS = process.env.EXPO_PUBLIC_WS_URL;
-
-// Emulator/simulator-friendly defaults
+// Emulator/simulator-friendly host
 const DEFAULT_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 const DEFAULT_PORT = 3000;
 
-// Fallbacks when envs are not provided
-const FALLBACK_HTTP = `http://${DEFAULT_HOST}:${DEFAULT_PORT}`;
-const API_DEFAULT = `${FALLBACK_HTTP}/api`;
+/** 
+ * =========================================================
+ *  🔧 TOGGLE BETWEEN SERVERS
+ *  Comment/uncomment to pick which one to use.
+ * =========================================================
+ */
 
-export const API_BASE_URL = ENV_API || API_DEFAULT;
-export const WS_BASE_URL = ENV_WS || FALLBACK_HTTP;
+// const USE_MAIN_SERVER = false; // 👉 dev / local server
+const USE_MAIN_SERVER = false;  // 👉 production server
 
+/** 
+ * =========================================================
+ *  SERVER ENDPOINTS
+ * =========================================================
+ */
+// const MAIN_HTTP = 'https://decaychess-0.onrender.com';
+// const MAIN_API = `${MAIN_HTTP}/api`;
+
+const DEV_HTTP = `http://${DEFAULT_HOST}:${DEFAULT_PORT}`;
+const DEV_API = `${DEV_HTTP}/api`;
+
+export const API_BASE_URL = USE_MAIN_SERVER ? MAIN_API : DEV_API;
+export const WS_BASE_URL = USE_MAIN_SERVER ? MAIN_HTTP : DEV_HTTP;
+
+/** 
+ * =========================================================
+ *  ROUTES
+ * =========================================================
+ */
 export const ROUTES = {
   AUTH: {
     LOGIN: '/auth/login',
@@ -49,6 +61,11 @@ export const ROUTES = {
   },
 } as const;
 
+/** 
+ * =========================================================
+ *  UI CONSTANTS
+ * =========================================================
+ */
 export const COLORS = {
   PRIMARY: '#00A862',
   BACKGROUND: '#23272A',
@@ -63,3 +80,5 @@ export const CHESS_VARIANTS = [
   { id: 'decay', name: 'Decay', description: 'Time-based variant' },
   { id: 'six-pointer', name: 'Six Pointer', description: 'Six-sided chess' },
 ] as const;
+
+console.log(`✅ Using ${USE_MAIN_SERVER ? 'MAIN' : 'DEV'} server: ${API_BASE_URL}`);

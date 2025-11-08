@@ -1,15 +1,17 @@
 "use client"
 
-import { getPieceComponent } from "@/app/components"
+import { getPieceComponent, ChessBoard, type DragState, createDecayTimerOverlay, createFrozenOverlay } from "@/app/components"
 import { getSocketInstance } from "@/utils/socketManager"
 import { useRouter } from "expo-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Dimensions, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
+import { Alert, Dimensions, FlatList, Modal, PanResponder, Text, TouchableOpacity, View } from "react-native"
+import { unstable_batchedUpdates } from "react-native"
 import type { Socket } from "socket.io-client"
-import { decayStyles } from "@/app/lib/styles"
+import { decayStyles, variantStyles } from "@/app/lib/styles"
 import { BOARD_THEME } from "@/app/lib/constants/boardTheme"
 import { DecayChessGameProps, GameState, DecayState, Move } from "@/app/lib/types/decay"
 import { usePreventEarlyExit } from "@/app/lib/hooks/usePreventEarlyExit"
+import type { SquareOverlay } from "@/app/components"
 const screenWidth = Dimensions.get("window").width
 const screenHeight = Dimensions.get("window").height
 const isTablet = Math.min(screenWidth, screenHeight) > 600
@@ -22,14 +24,6 @@ const squareSize = boardSize / 8
 
 const decayTimerFontSize = isSmallScreen ? 8 : 10
 const pieceFontSize = squareSize * BOARD_THEME.pieceScale
-
-type DragState = {
-  active: boolean
-  from: string | null
-  piece: string | null
-  x: number
-  y: number
-}
 
 const INITIAL_DRAG_STATE: DragState = {
   active: false,
@@ -1418,201 +1412,45 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
   const isDraggingPiece = dragState.active
   const dragOriginSquare = dragState.from
 
-  const renderSquare = useCallback(
-    (file: string, rank: string) => {
-      const square = `${file}${rank}`
-      const isLight = (FILES.indexOf(file) + Number.parseInt(rank)) % 2 === 0
-      const isSelected = selectedSquare === square
-      const isPossibleMove = possibleMoves.includes(square)
-
-      // Check for last move highlighting
-      let lastMoveObj = null
-      if (gameState.board && Array.isArray(gameState.board.moveHistory) && gameState.board.moveHistory.length > 0) {
-        lastMoveObj = gameState.board.moveHistory[gameState.board.moveHistory.length - 1]
-      } else if (
-        gameState.lastMove &&
-        typeof gameState.lastMove === "object" &&
-        gameState.lastMove.from &&
-        gameState.lastMove.to
-      ) {
-        lastMoveObj = gameState.lastMove
-      }
-
-      let isLastMove = false
-      if (lastMoveObj && lastMoveObj.from && lastMoveObj.to) {
-        isLastMove = lastMoveObj.from === square || lastMoveObj.to === square
-      }
-
-      const piece = getPieceAt(square)
-      const isDragOrigin = isDraggingPiece && dragOriginSquare === square
-      const pieceToRender = isDragOrigin ? null : piece
-
-      // Check if this piece has an active decay timer
+  // Get square overlays for decay variant (decay timers and frozen indicators)
+  const getSquareOverlays = useCallback(
+    (file: string, rank: string, square: string, piece: string | null): SquareOverlay[] => {
+      const overlays: SquareOverlay[] = []
       const pieceColor = piece ? getPieceColor(piece) : null
-      const hasActiveDecayTimer = pieceColor && decayState[pieceColor][square]?.isActive
-      const decayTimeLeft = hasActiveDecayTimer ? decayState[pieceColor][square].timeLeft : 0
 
-      // Check if this piece is frozen
+      // Decay timer overlay
+      if (pieceColor && decayState[pieceColor][square]?.isActive) {
+        const decayTimeLeft = decayState[pieceColor][square].timeLeft
+        if (decayTimeLeft > 0) {
+          overlays.push(createDecayTimerOverlay(decayTimeLeft, formatDecayTimeMinutes, decayTimerFontSize))
+        }
+      }
+
+      // Frozen indicator overlay
+      if (pieceColor && frozenPieces[pieceColor].has(square)) {
+        const moveDotSize = squareSize * BOARD_THEME.moveDotScale
+        overlays.push(createFrozenOverlay(moveDotSize))
+      }
+
+      return overlays
+    },
+    [getPieceColor, decayState, frozenPieces, squareSize],
+  )
+
+  // Custom square styles for frozen pieces (opacity)
+  const getCustomSquareStyles = useCallback(
+    (square: string) => {
+      const piece = getPieceAt(square)
+      const pieceColor = piece ? getPieceColor(piece) : null
       const isFrozen = pieceColor && frozenPieces[pieceColor].has(square)
 
-      // Determine border color and width
-      let borderColor = "transparent"
-      let borderWidth = 0
-
-      if (isFrozen) {
-        borderColor = BOARD_THEME.highlight.frozen
-        borderWidth = 2
-      } else if (isPossibleMove && piece) {
-        borderColor = BOARD_THEME.highlight.capture
-        borderWidth = 2
-      } else if (isPossibleMove) {
-        borderColor = BOARD_THEME.highlight.move
-        borderWidth = 2
-      } else if (isSelected) {
-        borderColor = BOARD_THEME.highlight.selected
-        borderWidth = 2
-      } else if (isLastMove) {
-        borderColor = BOARD_THEME.highlight.lastMove
-        borderWidth = 1
-      } else if (hasActiveDecayTimer) {
-        borderColor = BOARD_THEME.highlight.decay
-        borderWidth = 1
-      } else if (isDraggingPiece && dragTargetSquare === square) {
-        borderColor = BOARD_THEME.highlight.selected
-        borderWidth = 2
-      }
-
-      const squareBackground = isLight ? BOARD_THEME.lightSquare : BOARD_THEME.darkSquare
-      const coordinateColor = isLight ? BOARD_THEME.darkSquare : BOARD_THEME.lightSquare
-      const moveDotSize = squareSize * BOARD_THEME.moveDotScale
-      const captureIndicatorSize = squareSize * BOARD_THEME.captureIndicatorScale
-
-      return (
-        <View key={square} style={{ position: "relative" }}>
-          {/* Decay timer display above the square */}
-          {hasActiveDecayTimer && decayTimeLeft > 0 && (
-            <View
-              style={[
-                decayStyles.decayTimerAbove,
-                {
-                  width: squareSize,
-                  left: 0,
-                  top: isSmallScreen ? -20 : -24, // Position above the square
-                },
-              ]}
-            >
-              <View style={decayStyles.decayTimerBox}>
-                <Text style={[decayStyles.decayTimerBoxText, { fontSize: decayTimerFontSize }]}>
-                  {formatDecayTimeMinutes(decayTimeLeft)}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          <TouchableOpacity
-            style={[
-              decayStyles.square,
-              {
-                width: squareSize,
-                height: squareSize,
-                backgroundColor: squareBackground,
-                borderWidth,
-                borderColor,
-              },
-            ]}
-            onPress={() => handleSquarePress(square)}
-         >
-            {/* Coordinate labels */}
-            {file === "a" && (
-              <Text
-                style={[
-                  decayStyles.coordinateLabel,
-                  decayStyles.rankLabel,
-                  {
-                    color: coordinateColor,
-                    fontSize: isSmallScreen ? 8 : 10,
-                  },
-                ]}
-              >
-                {rank}
-              </Text>
-            )}
-            {rank === "1" && (
-              <Text
-                style={[
-                  decayStyles.coordinateLabel,
-                  decayStyles.fileLabel,
-                  {
-                    color: coordinateColor,
-                    fontSize: isSmallScreen ? 8 : 10,
-                  },
-                ]}
-              >
-                {file}
-              </Text>
-            )}
-
-            {/* Piece */}
-            {pieceToRender && (
-              <View
-                style={{
+      return {
+        piece: {
                   opacity: isFrozen ? 0.6 : 1,
-                }}
-              >
-                {getPieceComponent(pieceToRender, pieceFontSize)}
-              </View>
-            )}
-
-            {/* Frozen indicator */}
-            {isFrozen && (
-              <View style={[decayStyles.frozenIndicator, { width: moveDotSize, height: moveDotSize }]}>
-                <Text style={[decayStyles.frozenText, { fontSize: moveDotSize * 0.6 }]}>❄️</Text>
-              </View>
-            )}
-
-            {/* Move indicators */}
-            {isPossibleMove && !piece && !isFrozen && (
-              <View
-                style={[
-                  decayStyles.possibleMoveDot,
-                  {
-                    width: moveDotSize,
-                    height: moveDotSize,
-                    borderRadius: moveDotSize / 2,
-                  },
-                ]}
-              />
-            )}
-            {isPossibleMove && piece && !isFrozen && (
-              <View
-                style={[
-                  decayStyles.captureIndicator,
-                  {
-                    width: captureIndicatorSize,
-                    height: captureIndicatorSize,
-                    borderRadius: captureIndicatorSize / 2,
-                  },
-                ]}
-              />
-            )}
-          </TouchableOpacity>
-        </View>
-      )
+        },
+      }
     },
-    [
-      selectedSquare,
-      possibleMoves,
-      gameState.board,
-      gameState.lastMove,
-      getPieceAt,
-      getPieceColor,
-      decayState,
-      frozenPieces,
-      handleSquarePress,
-      isDraggingPiece,
-      dragOriginSquare,
-      dragTargetSquare,
-    ],
+    [getPieceAt, getPieceColor, frozenPieces],
   )
 
   // Render game info (check, checkmate, stalemate, etc.)
@@ -1635,44 +1473,60 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     return
   }, [gameState.status, gameState.gameState, gameState.players, gameState.board.activeColor, playerColor])
 
-  // FIXED: Render board with proper structure
-  const renderBoard = useCallback(() => {
-    const files = boardFlipped ? [...FILES].reverse() : FILES
-    const ranks = boardFlipped ? [...RANKS].reverse() : RANKS
+  // Get last move for board highlighting
+  const lastMove = useMemo(() => {
+    let lastMoveObj = null
+    if (gameState.board && Array.isArray(gameState.board.moveHistory) && gameState.board.moveHistory.length > 0) {
+      lastMoveObj = gameState.board.moveHistory[gameState.board.moveHistory.length - 1]
+    } else if (
+      gameState.lastMove &&
+      typeof gameState.lastMove === "object" &&
+      gameState.lastMove.from &&
+      gameState.lastMove.to
+    ) {
+      lastMoveObj = gameState.lastMove
+    }
+    return lastMoveObj ? { from: lastMoveObj.from, to: lastMoveObj.to } : null
+  }, [gameState.board, gameState.lastMove])
 
+  // Render board using shared component
+  const renderBoard = useCallback(() => {
+    const coordinateFontSize = isSmallScreen ? 8 : 10
     return (
-      <View style={decayStyles.boardContainer}>
-        <View
-          style={{ width: boardSize, height: boardSize, position: "relative" }}
-          {...panResponder.panHandlers}
-        >
-          <View style={decayStyles.board}>
-            {ranks.map((rank) => (
-              <View key={rank} style={decayStyles.row}>
-                {files.map((file) => renderSquare(file, rank))}
-              </View>
-            ))}
-          </View>
-          {dragState.active && dragState.piece && (
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                left: dragState.x - squareSize / 2,
-                top: dragState.y - squareSize / 2,
-                width: squareSize,
-                height: squareSize,
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-            >
-              {getPieceComponent(dragState.piece, pieceFontSize)}
-            </View>
-          )}
-        </View>
-      </View>
+      <ChessBoard
+        boardSize={boardSize}
+        squareSize={squareSize}
+        coordinateFontSize={coordinateFontSize}
+        pieceSize={pieceFontSize}
+        boardFlipped={boardFlipped}
+        selectedSquare={selectedSquare}
+        possibleMoves={possibleMoves}
+        dragState={dragState}
+        dragTargetSquare={dragTargetSquare}
+        lastMove={lastMove}
+        getPieceAt={getPieceAt}
+        onSquarePress={handleSquarePress}
+        getSquareOverlays={getSquareOverlays}
+        panResponder={panResponder}
+        customSquareStyles={getCustomSquareStyles}
+      />
     )
-  }, [boardFlipped, renderSquare, panResponder, dragState.active, dragState.piece, dragState.x, dragState.y])
+  }, [
+    boardSize,
+    squareSize,
+    pieceFontSize,
+    boardFlipped,
+    selectedSquare,
+    possibleMoves,
+    dragState,
+    dragTargetSquare,
+    lastMove,
+    getPieceAt,
+    handleSquarePress,
+    getSquareOverlays,
+    panResponder,
+    getCustomSquareStyles,
+  ])
 
   const renderPlayerInfo = useCallback(
     (color: "white" | "black") => {

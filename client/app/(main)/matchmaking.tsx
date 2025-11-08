@@ -1,4 +1,4 @@
-import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, BackHandler, Image, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -9,13 +9,30 @@ import DecayChess from "../(game)/variants/decay";
 import SixPointerChess from "../(game)/variants/six-pointer";
 import { getSocket, getSocketInstance } from "../../utils/socketManager";
 import { GameState } from "../lib/types/gamestate"; // Import GameState type
+import { usePreventRemove } from "@react-navigation/native";
 // Re-use the GameState interface or import it if defined in a shared file
+
+const normalizeParam = (value?: string | string[]) => {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+  return value ?? undefined;
+};
+
+const getDefaultSubvariant = (variant?: string) => {
+  if (!variant) return undefined;
+  if (variant === "classic") return "standard";
+  if (variant === "crazyhouse") return "standard";
+  return undefined;
+};
 
 export default function MatchMaking() {
   const router = useRouter();
-  const navigation = useNavigation();
-  // For MatchMaking, variant and subvariant *are* chosen by the player via params
-  const { variant, subvariant, userId } = useLocalSearchParams<{ variant: string; subvariant?: string, userId: string }>();
+  const params = useLocalSearchParams();
+  const variant = normalizeParam(params.variant);
+  const subvariant = normalizeParam(params.subvariant);
+  const userId = normalizeParam(params.userId);
+  const effectiveSubvariant = subvariant ?? getDefaultSubvariant(variant);
 
   const [opponent, setOpponent] = useState<string | null>(null);
   const [timer, setTimer] = useState(0);
@@ -24,6 +41,19 @@ export default function MatchMaking() {
   const [isMatchFound, setIsMatchFound] = useState(false);
   const [loading, setLoading] = useState(false);
   const [gameSocket, setGameSocket] = useState<Socket | null>(null);
+
+  useEffect(() => {
+    if (!variant) {
+      Alert.alert("Select a game", "We couldn't determine which variant you selected. Please try again.");
+      router.replace("/(main)/choose");
+      return;
+    }
+
+    if ((variant === "classic" || variant === "crazyhouse") && !effectiveSubvariant) {
+      Alert.alert("Choose a time control", "Please pick a time control before entering matchmaking.");
+      router.replace("/(main)/choose");
+    }
+  }, [variant, effectiveSubvariant, router]);
 
   useEffect(() => {
     // Always get a connected socket instance
@@ -54,14 +84,16 @@ export default function MatchMaking() {
   }, []);
 
   useEffect(() => {
-    if (!socket || !userId || !variant) { // Ensure essential params are present
+    if (!socket || !userId || !variant) {
       console.log("Waiting for socket or params to be ready for queue join.");
       return;
     }
 
+    const payload = effectiveSubvariant ? { variant, subvariant: effectiveSubvariant } : { variant };
+
     const joinQueue = () => {
-      console.log(`Emitting queue:join for variant: ${variant}, subvariant: ${subvariant || 'N/A'}`);
-      socket.emit("queue:join", { variant, subvariant });
+      console.log(`Emitting queue:join for variant: ${variant}, subvariant: ${payload.subvariant || 'N/A'}`);
+      socket.emit("queue:join", payload);
     };
 
     if (socket.connected) {
@@ -103,8 +135,18 @@ export default function MatchMaking() {
         socket.disconnect();        
 
         const sessionId = response.sessionId;
-        console.log("Match found! Session ID:", sessionId);
-        const gameSocket = getSocket(userId, "game", sessionId, variant, subvariant, "matchmaking");
+        const matchedVariant = response.variant || variant;
+        const matchedSubvariant = response.subvariant || effectiveSubvariant;
+
+        if (!matchedVariant) {
+          console.error("Missing variant info for matched session", response);
+          Alert.alert("Match Error", "Missing variant information. Please try again.");
+          setLoading(false);
+          return;
+        }
+
+        console.log("Match found! Session ID:", sessionId, "variant:", matchedVariant, "subvariant:", matchedSubvariant);
+        const gameSocket = getSocket(userId, "game", sessionId, matchedVariant, matchedSubvariant, "matchmaking");
         if (!gameSocket) {
           console.error("Failed to get game socket instance");
           alert("Failed to connect to game. Please try again.");
@@ -137,7 +179,8 @@ export default function MatchMaking() {
       // Wait for cooldown to expire, then retry joining the queue
       setTimeout(() => {
         setLoading(false);
-        socket.emit("queue:join", { variant, subvariant });
+        const retryPayload = effectiveSubvariant ? { variant, subvariant: effectiveSubvariant } : { variant };
+        socket.emit("queue:join", retryPayload);
         setTimer(0);
       }, remainingSeconds * 1000);
     });
@@ -146,7 +189,7 @@ export default function MatchMaking() {
     return () => {
       socket.off("connect", joinQueue);
     };
-  }, [socket, userId, variant, subvariant, router]); // Add dependencies
+  }, [socket, userId, variant, effectiveSubvariant, router]);
 
   useEffect(() => {
     if (opponent || isMatchFound) return; // Stop timer if opponent is found or match is found
@@ -172,35 +215,25 @@ export default function MatchMaking() {
 
   const blockBackNavigation = !isMatchFound;
 
+  usePreventRemove(blockBackNavigation, (event) => {
+    if (!blockBackNavigation) {
+      return;
+    }
+    const actionType = event?.data?.action?.type;
+    if (actionType === "GO_BACK" || actionType === "POP" || actionType === "POP_TO_TOP") {
+      event.preventDefault();
+    }
+  });
+
   useFocusEffect(
     React.useCallback(() => {
       if (!blockBackNavigation) {
         return undefined;
       }
-
-      const onBeforeRemove = (event: any) => {
-        const actionType = event?.data?.action?.type;
-        if (actionType === "GO_BACK" || actionType === "POP" || actionType === "POP_TO_TOP") {
-          event.preventDefault();
-        }
-      };
-
-      const unsubscribe = navigation.addListener("beforeRemove", onBeforeRemove);
-      return () => {
-        unsubscribe();
-      };
-    }, [navigation, blockBackNavigation])
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
+      return () => subscription.remove();
+    }, [blockBackNavigation])
   );
-
-  useEffect(() => {
-    if (!blockBackNavigation) {
-      return;
-    }
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
-    return () => {
-      subscription.remove();
-    };
-  }, [blockBackNavigation]);
 
   // If match is found and game state is available, show the chess game
   if (isMatchFound && gameState && gameSocket) {

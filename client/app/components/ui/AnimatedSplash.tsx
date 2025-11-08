@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from "react";
-import { Animated, ImageSourcePropType, StyleSheet, View } from "react-native";
+import React, { useEffect } from "react";
+import { ImageSourcePropType, StyleSheet, View, Image } from "react-native";
 
 interface AnimatedSplashProps {
   onFinish: () => void;
@@ -8,43 +8,21 @@ interface AnimatedSplashProps {
 }
 
 export default function AnimatedSplash({ onFinish, durationMs = 1200, logoSource }: AnimatedSplashProps) {
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const logoScale = useRef(new Animated.Value(0.85)).current;
-
   useEffect(() => {
-    const animation = Animated.sequence([
-      Animated.parallel([
-        Animated.timing(logoOpacity, { toValue: 1, duration: 450, useNativeDriver: true }),
-        Animated.spring(logoScale, {
-          toValue: 1,
-          damping: 10,
-          stiffness: 120,
-          mass: 0.6,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.timing(logoScale, { toValue: 1.05, duration: 220, useNativeDriver: true }),
-      Animated.timing(logoScale, { toValue: 1.0, duration: 200, useNativeDriver: true }),
-    ]);
-
-    animation.start();
+    // Simply wait for the duration and then finish
     const timeout = setTimeout(() => onFinish(), durationMs);
 
     return () => {
-      animation.stop();
       clearTimeout(timeout);
     };
-  }, [logoOpacity, logoScale, onFinish, durationMs]);
+  }, [onFinish, durationMs]);
 
   return (
     <View pointerEvents="none" style={styles.overlay}>
-      <Animated.Image
+      <Image
         source={logoSource}
         resizeMode="contain"
-        style={[
-          styles.logo,
-          { opacity: logoOpacity, transform: [{ scale: logoScale }] },
-        ]}
+        style={styles.logo}
       />
     </View>
   );
@@ -59,8 +37,8 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   logo: {
-    width: 160,
-    height: 160,
+    width: 280,
+    height: 280,
     borderRadius: 20,
   },
 });

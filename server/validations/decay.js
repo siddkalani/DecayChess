@@ -468,6 +468,7 @@ function initializeStateDefaults(state, currentTimestamp) {
   if (typeof state.lastMoveTimestamp !== "number") state.lastMoveTimestamp = currentTimestamp
   if (typeof state.whiteTime !== "number") state.whiteTime = 180000
   if (typeof state.blackTime !== "number") state.blackTime = 180000
+  if (typeof state.increment !== "number") state.increment = 2000 // Ensure increment is always 2000ms
   if (!state.moveHistory) state.moveHistory = []
   if (typeof state.gameStarted !== "boolean") state.gameStarted = false
   if (!state.firstMoveTimestamp) state.firstMoveTimestamp = null
@@ -516,28 +517,39 @@ function validateChessMove(state, move, playerColor, currentTimestamp) {
     return { valid: false, reason: "Invalid game state", code: "INVALID_FEN" }
   }
 
-  // Check turn
-  const currentPlayerBeforeMove = game.turn()
+  // Check turn - get the player whose turn it is (before the move)
+  const currentPlayerBeforeMove = game.turn() // "w" for white, "b" for black
   const currentPlayerColor = currentPlayerBeforeMove === "w" ? "white" : "black"
+  
+  console.log(`[DECAY TIMER] Turn check - game.turn()=${currentPlayerBeforeMove}, playerColor=${playerColor}, currentPlayerColor=${currentPlayerColor}`)
 
   if (currentPlayerColor !== playerColor) {
+    console.error(`[DECAY TIMER] ERROR: Turn mismatch! Expected ${playerColor}, but game.turn()=${currentPlayerBeforeMove} (${currentPlayerColor})`)
     return { valid: false, reason: "Not your turn", code: "WRONG_TURN" }
   }
 
   // Handle timing for first move
   if (!state.gameStarted || state.moveHistory.length === 0) {
-    console.log("FIRST MOVE DETECTED - Starting game timers")
+    console.log("[DECAY TIMER] FIRST MOVE DETECTED - Starting game timers")
     state.gameStarted = true
     state.firstMoveTimestamp = currentTimestamp
     state.turnStartTimestamp = currentTimestamp
     state.lastMoveTimestamp = currentTimestamp
+    console.log(`[DECAY TIMER] First move - no time deduction. Times: White=${state.whiteTime}ms, Black=${state.blackTime}ms`)
   } else {
     // Calculate elapsed time and deduct from current player
     const elapsed = currentTimestamp - state.turnStartTimestamp
+    console.log(`[DECAY TIMER] Time deduction - Player: ${currentPlayerBeforeMove}, Elapsed: ${elapsed}ms`)
     if (currentPlayerBeforeMove === "w") {
+      const timeBefore = state.whiteTime
       state.whiteTime = Math.max(0, state.whiteTime - elapsed)
-    } else {
+      console.log(`[DECAY TIMER] White time deducted: ${timeBefore}ms → ${state.whiteTime}ms (deducted ${elapsed}ms)`)
+    } else if (currentPlayerBeforeMove === "b") {
+      const timeBefore = state.blackTime
       state.blackTime = Math.max(0, state.blackTime - elapsed)
+      console.log(`[DECAY TIMER] Black time deducted: ${timeBefore}ms → ${state.blackTime}ms (deducted ${elapsed}ms)`)
+    } else {
+      console.error(`[DECAY TIMER] ERROR: Invalid currentPlayerBeforeMove in time deduction: ${currentPlayerBeforeMove}`)
     }
   }
 
@@ -590,17 +602,59 @@ function updateGameStateAfterMove(state, moveResult, currentTimestamp) {
   state.fen = game.fen()
   state.lastMoveTimestamp = currentTimestamp
 
-  // Add increment to the player who just moved (3+2 time control), clamp to 3 min
-  const BASE_TIME = 180000 // 3 minutes in ms
-  if (currentPlayerBeforeMove === "w") {
-    state.whiteTime = Math.min(state.whiteTime + state.increment, BASE_TIME)
-  } else {
-    state.blackTime = Math.min(state.blackTime + state.increment, BASE_TIME)
-  }
+  // Check if this is the first move BEFORE adding to history
+  const isFirstMove = state.moveHistory.length === 0
+  console.log(`[DECAY TIMER] Move history length: ${state.moveHistory.length}, isFirstMove: ${isFirstMove}`)
+  console.log(`[DECAY TIMER] Player who just moved: ${currentPlayerBeforeMove}`)
+  console.log(`[DECAY TIMER] Times before increment - White: ${state.whiteTime}ms, Black: ${state.blackTime}ms`)
+
+  // Add move to history FIRST (before applying increment)
+  state.moveHistory.push(result)
 
   // Reset turn start timestamp for the NEXT player's turn
   state.turnStartTimestamp = currentTimestamp
-  state.moveHistory.push(result)
+
+  // Add increment to the player who just moved (3+2 time control), clamp to 3 min
+  // IMPORTANT: Do NOT apply increment on the first move
+  const BASE_TIME = 180000 // 3 minutes in ms
+  // CRITICAL: Ensure increment is exactly 2000ms (2 seconds), never more or less
+  const INCREMENT = 2000
+  if (state.increment && state.increment !== 2000) {
+    console.warn(`[DECAY TIMER] WARNING: state.increment is ${state.increment}ms, but using 2000ms instead`)
+  }
+  
+  if (!isFirstMove) {
+    // Only apply increment if this is NOT the first move
+    // Apply increment to the player who JUST made the move (before the move, they were the active player)
+    // currentPlayerBeforeMove is "w" for white or "b" for black (from chess.js)
+    
+    // Validate currentPlayerBeforeMove is correct
+    if (currentPlayerBeforeMove !== "w" && currentPlayerBeforeMove !== "b") {
+      console.error(`[DECAY TIMER] CRITICAL ERROR: Invalid currentPlayerBeforeMove="${currentPlayerBeforeMove}". Expected "w" or "b"`)
+      console.error(`[DECAY TIMER] Move result:`, JSON.stringify(result, null, 2))
+      console.error(`[DECAY TIMER] Game FEN: ${game.fen()}`)
+    }
+    
+    if (currentPlayerBeforeMove === "w") {
+      // White just moved - add increment to White
+      const timeBefore = state.whiteTime
+      const newTime = Math.min(timeBefore + INCREMENT, BASE_TIME)
+      const actualIncrement = newTime - timeBefore
+      state.whiteTime = newTime
+      console.log(`[DECAY TIMER] ✓ White increment applied: +${INCREMENT}ms (actual: +${actualIncrement}ms). Time: ${timeBefore}ms → ${state.whiteTime}ms`)
+    } else if (currentPlayerBeforeMove === "b") {
+      // Black just moved - add increment to Black
+      const timeBefore = state.blackTime
+      const newTime = Math.min(timeBefore + INCREMENT, BASE_TIME)
+      const actualIncrement = newTime - timeBefore
+      state.blackTime = newTime
+      console.log(`[DECAY TIMER] ✓ Black increment applied: +${INCREMENT}ms (actual: +${actualIncrement}ms). Time: ${timeBefore}ms → ${state.blackTime}ms`)
+    }
+  } else {
+    console.log("[DECAY TIMER] First move - no increment applied (as expected)")
+  }
+  
+  console.log(`[DECAY TIMER] Final times - White: ${state.whiteTime}ms, Black: ${state.blackTime}ms`)
 
   // Update the active color
   const newActivePlayer = game.turn()

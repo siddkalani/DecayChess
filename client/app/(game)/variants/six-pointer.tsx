@@ -1,6 +1,6 @@
 "use client"
 
-import { getPieceComponent } from "@/app/components"
+import { getPieceComponent, ChessBoard, type DragState } from "@/app/components"
 import { getSocketInstance } from "@/utils/socketManager"
 import { useRouter } from "expo-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -24,14 +24,6 @@ const squareSize = boardSize / 8
 const capturedPieceSize = isSmallScreen ? 16 : 18
 const coordinateFontSize = isSmallScreen ? 8 : 10
 const promotionPieceSize = isSmallScreen ? 32 : isTablet ? 40 : 36
-
-type DragState = {
-  active: boolean
-  from: string | null
-  piece: string | null
-  x: number
-  y: number
-}
 
 const INITIAL_DRAG_STATE: DragState = {
   active: false,
@@ -1333,15 +1325,8 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     )
   }
 
-  const renderSquare = (file: string, rank: string) => {
-    const square = `${file}${rank}`
-    const isLight = (FILES.indexOf(file) + Number.parseInt(rank)) % 2 === 0
-    const isSelected = selectedSquare === square
-    const isPossibleMove = possibleMoves.includes(square)
-    const piece = getPieceAt(square)
-    const isDragOrigin = dragState.active && dragState.from === square
-    const pieceToRender = isDragOrigin ? null : piece
-
+  // Get last move for board highlighting
+  const lastMove = useMemo(() => {
     let lastMoveObj = null
     if (gameState.board && Array.isArray(gameState.board.moveHistory) && gameState.board.moveHistory.length > 0) {
       lastMoveObj = gameState.board.moveHistory[gameState.board.moveHistory.length - 1]
@@ -1353,140 +1338,43 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     ) {
       lastMoveObj = gameState.lastMove
     }
+    return lastMoveObj ? { from: lastMoveObj.from, to: lastMoveObj.to } : null
+  }, [gameState.board, gameState.lastMove])
 
-    let isLastMove = false
-    if (lastMoveObj && lastMoveObj.from && lastMoveObj.to) {
-      isLastMove = lastMoveObj.from === square || lastMoveObj.to === square
-    }
-
-    let borderColor = "transparent"
-    let borderWidth = 0
-
-    if (dragState.active && dragTargetSquare === square) {
-      borderColor = BOARD_THEME.highlight.selected
-      borderWidth = 2
-    } else if (isPossibleMove && piece) {
-      borderColor = BOARD_THEME.highlight.capture
-      borderWidth = 2
-    } else if (isPossibleMove) {
-      borderColor = BOARD_THEME.highlight.move
-      borderWidth = 2
-    } else if (isSelected) {
-      borderColor = BOARD_THEME.highlight.selected
-      borderWidth = 2
-    } else if (isLastMove) {
-      borderColor = BOARD_THEME.highlight.lastMove
-      borderWidth = 1
-    }
-
-    const squareBackground = isLight ? BOARD_THEME.lightSquare : BOARD_THEME.darkSquare
-    const coordinateColor = isLight ? BOARD_THEME.darkSquare : BOARD_THEME.lightSquare
-    const moveDotSize = squareSize * BOARD_THEME.moveDotScale
-    const captureIndicatorSize = squareSize * BOARD_THEME.captureIndicatorScale
-
+  // Render board using shared component
+  const renderBoard = useCallback(() => {
+    const pieceFontSize = squareSize * BOARD_THEME.pieceScale
     return (
-      <View key={square} style={{ position: "relative" }}>
-        <TouchableOpacity
-          style={[
-            variantStyles.square,
-            {
-              width: squareSize,
-              height: squareSize,
-              backgroundColor: squareBackground,
-              borderWidth,
-              borderColor,
-            },
-          ]}
-          onPress={() => handleSquarePress(square)}
-        >
-          {file === "a" && (
-            <Text
-              style={[
-                variantStyles.coordinateLabel,
-                variantStyles.rankLabel,
-                { color: coordinateColor, fontSize: coordinateFontSize },
-              ]}
-            >
-              {rank}
-            </Text>
-          )}
-          {rank === "1" && (
-            <Text
-              style={[
-                variantStyles.coordinateLabel,
-                variantStyles.fileLabel,
-                { color: coordinateColor, fontSize: coordinateFontSize },
-              ]}
-            >
-              {file}
-            </Text>
-          )}
-
-          {pieceToRender && getPieceComponent(pieceToRender, squareSize * BOARD_THEME.pieceScale)}
-
-          {isPossibleMove && !piece && (
-            <View
-              style={[
-                variantStyles.possibleMoveDot,
-                {
-                  width: moveDotSize,
-                  height: moveDotSize,
-                  borderRadius: moveDotSize / 2,
-                },
-              ]}
-            />
-          )}
-          {isPossibleMove && piece && (
-            <View
-              style={[
-                variantStyles.captureIndicator,
-                {
-                  width: captureIndicatorSize,
-                  height: captureIndicatorSize,
-                  borderRadius: captureIndicatorSize / 2,
-                },
-              ]}
-            />
-          )}
-        </TouchableOpacity>
-      </View>
+      <ChessBoard
+        boardSize={boardSize}
+        squareSize={squareSize}
+        coordinateFontSize={coordinateFontSize}
+        pieceSize={pieceFontSize}
+        boardFlipped={boardFlipped}
+        selectedSquare={selectedSquare}
+        possibleMoves={possibleMoves}
+        dragState={dragState}
+        dragTargetSquare={dragTargetSquare}
+        lastMove={lastMove}
+        getPieceAt={getPieceAt}
+        onSquarePress={handleSquarePress}
+        panResponder={panResponder}
+      />
     )
-  }
-
-  const renderBoard = () => {
-    const files = boardFlipped ? [...FILES].reverse() : FILES
-    const ranks = boardFlipped ? [...RANKS].reverse() : RANKS
-
-    return (
-      <View style={variantStyles.boardContainer}>
-        <View style={{ width: boardSize, height: boardSize, position: "relative" }} {...panResponder.panHandlers}>
-          <View style={variantStyles.board}>
-            {ranks.map((rank) => (
-              <View key={rank} style={variantStyles.row}>
-                {files.map((file) => renderSquare(file, rank))}
-              </View>
-            ))}
-          </View>
-          {dragState.active && dragState.piece && (
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                left: dragState.x - squareSize / 2,
-                top: dragState.y - squareSize / 2,
-                width: squareSize,
-                height: squareSize,
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-            >
-              {getPieceComponent(dragState.piece, squareSize * BOARD_THEME.pieceScale)}
-            </View>
-          )}
-        </View>
-      </View>
-    )
-  }
+  }, [
+    boardSize,
+    squareSize,
+    coordinateFontSize,
+    boardFlipped,
+    selectedSquare,
+    possibleMoves,
+    dragState,
+    dragTargetSquare,
+    lastMove,
+    getPieceAt,
+    handleSquarePress,
+    panResponder,
+  ])
 
   const renderMovesLeftIndicators = (color: "white" | "black") => {
     const maxMoves = getMaxMoves()
