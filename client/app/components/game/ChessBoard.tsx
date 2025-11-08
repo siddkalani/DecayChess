@@ -1,5 +1,5 @@
 import React, { useMemo } from "react"
-import { View, PanResponder } from "react-native"
+import { Animated, View, PanResponder } from "react-native"
 import { getPieceComponent } from "./chessPieces"
 import { ChessSquare, SquareOverlay } from "./ChessSquare"
 import { variantStyles } from "@/app/lib/styles"
@@ -32,6 +32,10 @@ export interface ChessBoardProps {
   getSquareOverlays?: (file: string, rank: string, square: string, piece: string | null) => SquareOverlay[]
   panResponder?: PanResponder.PanResponderInstance
   customSquareStyles?: (square: string) => { square?: any; piece?: any }
+  // Animated values for smooth drag and drop
+  animatedPan?: Animated.ValueXY
+  animatedScale?: Animated.Value
+  animatedOpacity?: Animated.Value
 }
 
 export const ChessBoard: React.FC<ChessBoardProps> = ({
@@ -50,6 +54,9 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
   getSquareOverlays,
   panResponder,
   customSquareStyles,
+  animatedPan,
+  animatedScale,
+  animatedOpacity,
 }) => {
   const files = useMemo(() => (boardFlipped ? [...FILES].reverse() : FILES), [boardFlipped])
   const ranks = useMemo(() => (boardFlipped ? [...RANKS].reverse() : RANKS), [boardFlipped])
@@ -99,6 +106,7 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
       <View
         style={{ width: boardSize, height: boardSize, position: "relative" }}
         {...(panResponder?.panHandlers || {})}
+        collapsable={false}
       >
         <View style={variantStyles.board}>
           {ranks.map((rank) => (
@@ -108,7 +116,7 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
           ))}
         </View>
         {dragState.active && dragState.piece && (
-          <View
+          <Animated.View
             pointerEvents="none"
             style={{
               position: "absolute",
@@ -118,10 +126,20 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
               height: squareSize,
               justifyContent: "center",
               alignItems: "center",
+              transform: [
+                ...(animatedPan ? [
+                  { translateX: animatedPan.x },
+                  { translateY: animatedPan.y },
+                ] : []),
+                ...(animatedScale ? [{ scale: animatedScale }] : []),
+              ],
+              opacity: animatedOpacity || 1,
+              zIndex: 1000,
+              elevation: 10,
             }}
           >
             {getPieceComponent(dragState.piece, pieceSize)}
-          </View>
+          </Animated.View>
         )}
       </View>
     </View>

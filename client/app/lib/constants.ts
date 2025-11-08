@@ -12,15 +12,15 @@ const DEFAULT_PORT = 3000;
  */
 
 // const USE_MAIN_SERVER = false; // 👉 dev / local server
-const USE_MAIN_SERVER = false;  // 👉 production server
+const USE_MAIN_SERVER = true;  // 👉 production server
 
 /** 
  * =========================================================
  *  SERVER ENDPOINTS
  * =========================================================
  */
-// const MAIN_HTTP = 'https://decaychess-0.onrender.com';
-// const MAIN_API = `${MAIN_HTTP}/api`;
+const MAIN_HTTP = 'https://decaychess-0.onrender.com';
+const MAIN_API = `${MAIN_HTTP}/api`;
 
 const DEV_HTTP = `http://${DEFAULT_HOST}:${DEFAULT_PORT}`;
 const DEV_API = `${DEV_HTTP}/api`;
