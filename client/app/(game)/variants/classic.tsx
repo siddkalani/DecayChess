@@ -2,8 +2,7 @@
 
 import { useRouter } from "expo-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Dimensions, InteractionManager, Modal, PanResponder, Platform, ScrollView, Text, TouchableOpacity, View } from "react-native"
-import { Chess } from "chess.js"
+import { Alert, Dimensions, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
 import type { Socket } from "socket.io-client"
 import { getSocketInstance } from "../../../utils/socketManager"
 import { getPieceComponent, ChessBoard, type DragState } from "@/app/components"
@@ -288,41 +287,6 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     )
   }, [gameState, userId])
 
-  // Optimize socket connection for Android (force WebSocket, faster than polling)
-  useEffect(() => {
-    if (!socket) return
-
-    // Force WebSocket transport on mobile for better performance
-    if (Platform.OS === 'android' || Platform.OS === 'ios') {
-      if (socket.io && socket.io.opts) {
-        socket.io.opts.transports = ['websocket']
-        // Reconnect if needed to apply new transport
-        if (!socket.connected) {
-          socket.connect()
-        }
-      }
-    }
-
-    // Monitor connection quality
-    socket.on('connect', () => {
-      console.log('[SOCKET] Connected - transport:', socket.io?.engine?.transport?.name)
-    })
-
-    socket.on('disconnect', (reason) => {
-      console.log('[SOCKET] Disconnected:', reason)
-    })
-
-    socket.on('reconnect', (attemptNumber) => {
-      console.log('[SOCKET] Reconnected after', attemptNumber, 'attempts')
-    })
-
-    return () => {
-      socket.off('connect')
-      socket.off('disconnect')
-      socket.off('reconnect')
-    }
-  }, [socket])
-
   useEffect(() => {
     if (!socket) return
 
@@ -345,7 +309,7 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     }
   }, [socket, playerColor])
 
-  // Clear possible moves and selection when it's no longer the player's turn
+  // Clear possible moves when it's no longer the player's turn
   useEffect(() => {
     if (!isMyTurn) {
       setPossibleMoves([])
@@ -435,46 +399,21 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
   ]);
 
   const handleGameMove = (data: any) => {
-    console.log("[MOVE] Move received from server:", data)
+    console.log("[MOVE] Move received:", data)
     if (data && data.gameState) {
-      // Check if server rejected the move (rollback needed)
-      if (data.gameState.gameState?.valid === false) {
-        // ROLLBACK: Revert optimistic update
-        if (previousStateRef.current) {
-          console.log("[ROLLBACK] Reverting optimistic update")
-          // React 18+ automatically batches state updates
-          setGameState((prev) => ({
-            ...prev,
-            board: {
-              ...prev.board,
-              fen: previousStateRef.current!.fen,
-              position: previousStateRef.current!.fen,
-              activeColor: previousStateRef.current!.activeColor,
-            },
-            moves: previousStateRef.current!.moves,
-            lastMove: previousStateRef.current!.lastMove,
-            moveCount: Math.max(0, (prev.moveCount || 0) - 1),
-          }))
-          setIsMyTurn(true) // Restore turn since move was rejected
-          previousStateRef.current = null
-          pendingOptimisticMoveRef.current = null
-        }
-        Alert.alert("Invalid Move", data.gameState.gameState.reason || "Move was rejected by server")
-        return
-      }
-
-      // Check if this is OUR move (that we applied optimistically) or OPPONENT's move
-      const isOurMove = pendingOptimisticMoveRef.current && 
-        data.move && 
-        data.move.from === pendingOptimisticMoveRef.current.from &&
-        data.move.to === pendingOptimisticMoveRef.current.to
-
-      console.log("[MOVE] Is our optimistic move:", isOurMove, "Pending:", pendingOptimisticMoveRef.current, "Server move:", data.move)
-
       const now = Date.now()
       const previousMoveCount = gameState.moves?.length || gameState.board?.moveHistory?.length || 0
       const newMoveCount = data.gameState.moves?.length || data.gameState.board?.moveHistory?.length || 0
       const wasFirstMove = previousMoveCount === 0 && newMoveCount === 1
+
+      console.log(
+        "[MOVE] Previous move count:",
+        previousMoveCount,
+        "New move count:",
+        newMoveCount,
+        "Was first move:",
+        wasFirstMove,
+      )
 
       let newWhiteTime = safeTimerValue(gameState.timeControl.timers.white)
       let newBlackTime = safeTimerValue(gameState.timeControl.timers.black)
@@ -491,6 +430,9 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
         newBlackTime = safeTimerValue(data.gameState.board.blackTime)
       }
 
+      console.log("[MOVE] Timer values from server - White:", newWhiteTime, "Black:", newBlackTime)
+      console.log("[MOVE] Previous local timers - White:", localTimers.white, "Black:", localTimers.black)
+
       if (wasFirstMove) {
         console.log("[MOVE] First move detected - preserving initial timer values")
         newWhiteTime = localTimers.white
@@ -506,12 +448,15 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
         isFirstMove: newMoveCount === 0,
       }
 
+      console.log("[MOVE] Updated server sync - Active color:", data.gameState.board.activeColor)
+
       if (
         data.gameState.gameState?.gameEnded ||
         data.gameState.gameState?.checkmate ||
         data.gameState.status === "ended" ||
         data.gameState.shouldNavigateToMenu
       ) {
+        console.log("[MOVE] Game ended detected:", data.gameState.gameState)
         const result = data.gameState.gameState?.result || data.gameState.result || "unknown"
         let winner = data.gameState.gameState?.winner || data.gameState.winner
 
@@ -534,74 +479,44 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
           winnerName = data.gameState.players[winner].username
         }
 
+        console.log(
+          `[GAME ENDED] Reason: ${endReason}\n` +
+            `Move: ${moveSan} by ${moveMaker}\n` +
+            `Winner: ${winner}${winnerName ? ` (${winnerName})` : ""}`,
+        )
+
         handleGameEnd(result, winner, endReason, { moveSan, moveMaker, winnerName })
-        
-        // Clear pending move
-        pendingOptimisticMoveRef.current = null
-        previousStateRef.current = null
         return
       }
 
-      // React 18+ automatically batches state updates, so we can call them directly
-      if (isOurMove) {
-        // OUR MOVE: We already applied it optimistically, so just sync non-visual state
-        console.log("[MOVE] Confirming our optimistic move - syncing timers and state only")
-        setGameState((prevState) => ({
-          ...prevState,
-          // Keep our optimistic board state, but update other properties from server
-          board: {
-            ...prevState.board,
-            // Keep our optimistic FEN, but update other board properties from server
-            ...data.gameState.board,
-            fen: prevState.board.fen, // Keep optimistic FEN
-            position: prevState.board.position, // Keep optimistic position
-            activeColor: prevState.board.activeColor, // Keep optimistic activeColor
+      setGameState((prevState) => ({
+        ...prevState,
+        ...data.gameState,
+        board: {
+          ...prevState.board,
+          ...data.gameState.board,
+        },
+        timeControl: {
+          ...prevState.timeControl,
+          ...data.gameState.timeControl,
+          timers: {
+            white: newWhiteTime,
+            black: newBlackTime,
           },
-          timeControl: {
-            ...prevState.timeControl,
-            ...data.gameState.timeControl,
-            timers: {
-              white: newWhiteTime,
-              black: newBlackTime,
-            },
-          },
-          moves: data.gameState.moves || prevState.moves,
-          lastMove: data.gameState.lastMove || prevState.lastMove,
-          moveCount: data.gameState.moveCount || prevState.moveCount,
-        }))
-      } else {
-        // OPPONENT'S MOVE: Apply it normally (no optimistic update was done)
-        console.log("[MOVE] Applying opponent's move")
-        setGameState((prevState) => ({
-          ...prevState,
-          ...data.gameState,
-          board: {
-            ...prevState.board,
-            ...data.gameState.board,
-          },
-          timeControl: {
-            ...prevState.timeControl,
-            ...data.gameState.timeControl,
-            timers: {
-              white: newWhiteTime,
-              black: newBlackTime,
-            },
-          },
-          moves: data.gameState.moves || [],
-          lastMove: data.gameState.lastMove,
-          moveCount: data.gameState.moveCount,
-        }))
-      }
+        },
+        moves: data.gameState.moves || [],
+        lastMove: data.gameState.lastMove,
+        moveCount: data.gameState.moveCount,
+      }))
 
       setLocalTimers({
         white: newWhiteTime,
         black: newBlackTime,
       })
 
-      setMoveHistory(data.gameState.moves || [])
+      console.log("[MOVE] Updated local timers to - White:", newWhiteTime, "Black:", newBlackTime)
 
-      // ALWAYS clear selection state when any move is received (turn changed)
-      // This prevents random squares from being highlighted
+      setMoveHistory(data.gameState.moves || [])
       setSelectedSquare(null)
       setPossibleMoves([])
 
@@ -610,11 +525,14 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
       const newIsMyTurn = activeColor === userColor
       setIsMyTurn(newIsMyTurn)
 
-      // Clear pending move tracking
-      if (isOurMove) {
-        pendingOptimisticMoveRef.current = null
-        previousStateRef.current = null
-      }
+      console.log(
+        "[MOVE] Turn update - Active color:",
+        activeColor,
+        "User color:",
+        userColor,
+        "Is my turn:",
+        newIsMyTurn,
+      )
     }
   }
 
@@ -768,32 +686,7 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
 
   const handleGameError = (data: any) => {
     console.log("Game error:", data)
-    
-    // If it's a move validation error, rollback optimistic update
-    if (data.code === "ILLEGAL_MOVE" || data.code === "INVALID_MOVE") {
-      // Rollback optimistic update
-      if (previousStateRef.current) {
-        console.log("[ROLLBACK] Reverting optimistic update due to error")
-        // React 18+ automatically batches state updates
-        setGameState((prev) => ({
-          ...prev,
-          board: {
-            ...prev.board,
-            fen: previousStateRef.current!.fen,
-            position: previousStateRef.current!.fen,
-            activeColor: previousStateRef.current!.activeColor,
-          },
-          moves: previousStateRef.current!.moves,
-          lastMove: previousStateRef.current!.lastMove,
-          moveCount: Math.max(0, (prev.moveCount || 0) - 1),
-        }))
-        setIsMyTurn(true) // Restore turn since move was rejected
-        previousStateRef.current = null
-      }
-      Alert.alert("Invalid Move", data.message || data.error || "This move is not valid")
-    } else {
-      Alert.alert("Error", data.message || data.error || "An error occurred")
-    }
+    Alert.alert("Error", data.message || data.error || "An error occurred")
   }
 
   const handleGameWarning = (data: any) => {
@@ -857,56 +750,13 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
       return
     }
 
-    // OPTIMISTIC UPDATE: Apply move immediately on client for instant UI feedback
-    const currentFen = gameState.board.fen || gameState.board.position
-    const optimisticFen = applyOptimisticMove(move, currentFen)
-    
-    if (!optimisticFen) {
-      Alert.alert("Invalid Move", "This move is not valid")
-      return
-    }
-
-    // Store previous state for potential rollback
-    const moveTimestamp = Date.now()
-    previousStateRef.current = {
-      fen: currentFen,
-      activeColor: gameState.board.activeColor,
-      moves: [...(gameState.moves || [])],
-      lastMove: gameState.lastMove,
-    }
-
-    // Track this as our pending optimistic move
-    pendingOptimisticMoveRef.current = {
-      from: move.from,
-      to: move.to,
-      timestamp: moveTimestamp,
-    }
-
-    // Update board IMMEDIATELY (optimistic) - this makes Android feel instant
-    // React 18+ automatically batches state updates, so no need for unstable_batchedUpdates
-    // Update board state immediately
-    setGameState((prev) => ({
-      ...prev,
-      board: {
-        ...prev.board,
-        fen: optimisticFen,
-        position: optimisticFen,
-        activeColor: prev.board.activeColor === 'white' ? 'black' : 'white',
-      },
-      moves: [...(prev.moves || []), move],
-      lastMove: { from: move.from, to: move.to },
-      moveCount: (prev.moveCount || 0) + 1,
-    }))
-
-    // Update UI state immediately (React will batch these automatically)
     setIsMyTurn(false)
     setSelectedSquare(null)
     setPossibleMoves([])
 
-    // Send to server (server will confirm and sync any additional state)
     socket.emit("game:makeMove", {
       move: { from: move.from, to: move.to, promotion: move.promotion },
-      timestamp: moveTimestamp,
+      timestamp: Date.now(),
     })
 
     console.log("[DEBUG] Move emitted:", { from: move.from, to: move.to, promotion: move.promotion })
@@ -964,40 +814,6 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
       return piece === piece.toLowerCase()
     }
   }
-
-  // Optimistic move application - applies move immediately on client for instant UI update
-  const applyOptimisticMove = useCallback((move: Move, currentFen: string): string | null => {
-    try {
-      const game = new Chess(currentFen)
-      const result = game.move({
-        from: move.from,
-        to: move.to,
-        promotion: move.promotion || undefined,
-      })
-      if (result) {
-        return game.fen()
-      }
-      return null
-    } catch (error) {
-      console.error("[OPTIMISTIC] Move validation failed:", error)
-      return null
-    }
-  }, [])
-
-  // Store previous state for potential rollback
-  const previousStateRef = useRef<{
-    fen: string
-    activeColor: "white" | "black"
-    moves: any[]
-    lastMove: any
-  } | null>(null)
-
-  // Track pending optimistic move to identify our moves vs opponent moves
-  const pendingOptimisticMoveRef = useRef<{
-    from: string
-    to: string
-    timestamp: number
-  } | null>(null)
 
   const getSquareFromCoords = useCallback(
     (x: number, y: number): string | null => {

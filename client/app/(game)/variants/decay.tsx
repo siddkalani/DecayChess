@@ -4,8 +4,8 @@ import { getPieceComponent, ChessBoard, type DragState, createDecayTimerOverlay,
 import { getSocketInstance } from "@/utils/socketManager"
 import { useRouter } from "expo-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Animated, Dimensions, FlatList, InteractionManager, Modal, PanResponder, Platform, ScrollView, Text, TouchableOpacity, View } from "react-native"
-import { Chess } from "chess.js"
+import { Alert, Dimensions, FlatList, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
+import { unstable_batchedUpdates } from "react-native"
 import type { Socket } from "socket.io-client"
 import { decayStyles, variantStyles } from "@/app/lib/styles"
 import { BOARD_THEME } from "@/app/lib/constants/boardTheme"
@@ -146,38 +146,9 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
   })
   const dragStateRef = useRef<DragState>(dragState)
 
-  // Animated values for smooth drag and drop
-  const pan = useRef(new Animated.ValueXY()).current
-  const scaleAnim = useRef(new Animated.Value(1)).current
-  const opacityAnim = useRef(new Animated.Value(1)).current
-  const dragStartPosition = useRef({ x: 0, y: 0 })
-  const isDragging = useRef(false)
-
   useEffect(() => {
     dragStateRef.current = dragState
   }, [dragState])
-
-  // Reset animations when drag ends
-  useEffect(() => {
-    if (!dragState.active && isDragging.current) {
-      isDragging.current = false
-      Animated.parallel([
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 8,
-        }),
-        Animated.spring(opacityAnim, {
-          toValue: 1,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 8,
-        }),
-      ]).start()
-      pan.setValue({ x: 0, y: 0 })
-    }
-  }, [dragState.active, pan, scaleAnim, opacityAnim])
 
   const lastServerSync = useRef<{
     white: number
@@ -261,42 +232,8 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       if (!file || !rank) return null
       return `${file}${rank}`
     },
-    [boardFlipped, boardSize, squareSize],
+    [boardFlipped],
   )
-
-  // Optimistic move application - applies move immediately on client for instant UI update
-  const applyOptimisticMove = useCallback((move: Move, currentFen: string): string | null => {
-    try {
-      const game = new Chess(currentFen)
-      const result = game.move({
-        from: move.from,
-        to: move.to,
-        promotion: move.promotion || undefined,
-      })
-      if (result) {
-        return game.fen()
-      }
-      return null
-    } catch (error) {
-      console.error("[OPTIMISTIC] Move validation failed:", error)
-      return null
-    }
-  }, [])
-
-  // Store previous state for potential rollback
-  const previousStateRef = useRef<{
-    fen: string
-    activeColor: "white" | "black"
-    moves: any[]
-    lastMove: any
-  } | null>(null)
-
-  // Track pending optimistic move to identify our moves vs opponent moves
-  const pendingOptimisticMoveRef = useRef<{
-    from: string
-    to: string
-    timestamp: number
-  } | null>(null)
 
   const canDragSquare = useCallback(
     (square: string | null): boolean => {
@@ -314,12 +251,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
   const resetDragVisuals = useCallback(() => {
     setDragState(INITIAL_DRAG_STATE)
     setDragTargetSquare(null)
-    // Reset animated values
-    pan.setValue({ x: 0, y: 0 })
-    scaleAnim.setValue(1)
-    opacityAnim.setValue(1)
-    isDragging.current = false
-  }, [pan, scaleAnim, opacityAnim])
+  }, [])
 
 
   // Utility: Remove decay timers and frozen state for captured pieces
@@ -901,40 +833,13 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
   // Socket event handlers (keeping all the existing logic)
   const handleGameMove = useCallback(
     (data: any) => {
-      console.log("[MOVE] Move received from server:", data)
+      console.log("[MOVE] Move received:", data)
       if (data && data.gameState) {
-        // Check if server rejected the move (rollback needed)
-        if (data.gameState.gameState?.valid === false) {
-          // ROLLBACK: Revert optimistic update
-          if (previousStateRef.current) {
-            console.log("[ROLLBACK] Reverting optimistic update")
-            // React 18+ automatically batches state updates
-            setGameState((prev) => ({
-              ...prev,
-              board: {
-                ...prev.board,
-                fen: previousStateRef.current!.fen,
-                activeColor: previousStateRef.current!.activeColor,
-              },
-              moves: previousStateRef.current!.moves,
-              lastMove: previousStateRef.current!.lastMove,
-              moveCount: Math.max(0, (prev.moveCount || 0) - 1),
-            }))
-            setIsMyTurn(true) // Restore turn since move was rejected
-            previousStateRef.current = null
-            pendingOptimisticMoveRef.current = null
-          }
-          Alert.alert("Invalid Move", data.gameState.gameState.reason || "Move was rejected by server")
-          return
+        // Handle decay logic for the moved piece
+        if (data.move && data.move.from && data.move.to) {
+          const movedPiece = getPieceAt(data.move.from)
+          handleDecayMove(data.move.from, data.move.to, movedPiece === null ? undefined : movedPiece)
         }
-
-        // Check if this is OUR move (that we applied optimistically) or OPPONENT's move
-        const isOurMove = pendingOptimisticMoveRef.current && 
-          data.move && 
-          data.move.from === pendingOptimisticMoveRef.current.from &&
-          data.move.to === pendingOptimisticMoveRef.current.to
-
-        console.log("[MOVE] Is our optimistic move:", isOurMove, "Pending:", pendingOptimisticMoveRef.current, "Server move:", data.move)
 
         // Extract timer values from the response
         let newWhiteTime = safeTimerValue(gameState.timeControl.timers.white)
@@ -963,6 +868,12 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
           isFirstMove: (data.gameState.moves?.length || 0) === 0,
         }
 
+        // Update local timers immediately to the server values
+        setLocalTimers({
+          white: newWhiteTime,
+          black: newBlackTime,
+        })
+
         // Check if the game has ended
         if (
           data.gameState.gameState?.gameEnded ||
@@ -989,102 +900,47 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
           }
 
           handleGameEnd(result, winner, endReason, { moveSan, moveMaker, winnerName })
-          
-          // Clear pending move
-          pendingOptimisticMoveRef.current = null
-          previousStateRef.current = null
           return
         }
 
-        // React 18+ automatically batches state updates, so we can call them directly
-        if (isOurMove) {
-          // OUR MOVE: We already applied it optimistically, so just sync non-visual state
-          // Don't overwrite the board FEN/position since we already updated it
-          console.log("[MOVE] Confirming our optimistic move - syncing timers and state only")
-          setGameState((prevState) => ({
-            ...prevState,
-            // Keep our optimistic board state, but update other properties from server
-            board: {
-              ...prevState.board,
-              // Keep our optimistic FEN, but update other board properties from server
-              ...data.gameState.board,
-              fen: prevState.board.fen, // Keep optimistic FEN
-              activeColor: prevState.board.activeColor, // Keep optimistic activeColor
+        setGameState((prevState) => ({
+          ...prevState,
+          ...data.gameState,
+          board: {
+            ...prevState.board,
+            ...data.gameState.board,
+          },
+          timeControl: {
+            ...prevState.timeControl,
+            ...data.gameState.timeControl,
+            timers: {
+              white: newWhiteTime,
+              black: newBlackTime,
             },
-            timeControl: {
-              ...prevState.timeControl,
-              ...data.gameState.timeControl,
-              timers: {
-                white: newWhiteTime,
-                black: newBlackTime,
-              },
-            },
-            // Keep our optimistic moves array, but update from server for consistency
-            moves: data.gameState.moves || prevState.moves,
-            lastMove: data.gameState.lastMove || prevState.lastMove,
-            moveCount: data.gameState.moveCount || prevState.moveCount,
-          }))
-        } else {
-          // OPPONENT'S MOVE: Apply it normally (no optimistic update was done)
-          console.log("[MOVE] Applying opponent's move")
-          setGameState((prevState) => ({
-            ...prevState,
-            ...data.gameState,
-            board: {
-              ...prevState.board,
-              ...data.gameState.board,
-            },
-            timeControl: {
-              ...prevState.timeControl,
-              ...data.gameState.timeControl,
-              timers: {
-                white: newWhiteTime,
-                black: newBlackTime,
-              },
-            },
-            moves: data.gameState.moves || [],
-            lastMove: data.gameState.lastMove,
-            moveCount: data.gameState.moveCount,
-          }))
-        }
+          },
+          moves: data.gameState.moves || [],
+          lastMove: data.gameState.lastMove,
+          moveCount: data.gameState.moveCount,
+        }))
 
+        // Clean up decay/frozen state for captured pieces
+        cleanupCapturedPieces(data.gameState.board)
+
+        // Update local timers
         setLocalTimers({
           white: newWhiteTime,
           black: newBlackTime,
         })
 
         setMoveHistory(data.gameState.moves || [])
-
-        // ALWAYS clear selection state when any move is received (turn changed)
-        // This prevents random squares from being highlighted
         setSelectedSquare(null)
         setPossibleMoves([])
-        setDragTargetSquare(null)
 
         // Update turn state
         const userColor = data.gameState.userColor ? data.gameState.userColor[userId] : playerColor
         const activeColor = data.gameState.board.activeColor
         const newIsMyTurn = activeColor === userColor
         setIsMyTurn(newIsMyTurn)
-
-        // Defer non-critical updates (decay logic, cleanup) to after interactions complete
-        // This keeps the UI responsive on Android
-        InteractionManager.runAfterInteractions(() => {
-          // Handle decay logic for the moved piece
-          if (data.move && data.move.from && data.move.to) {
-            const movedPiece = getPieceAt(data.move.from)
-            handleDecayMove(data.move.from, data.move.to, movedPiece === null ? undefined : movedPiece)
-          }
-
-          // Clean up decay/frozen state for captured pieces
-          cleanupCapturedPieces(data.gameState.board)
-        })
-
-        // Clear pending move tracking
-        if (isOurMove) {
-          pendingOptimisticMoveRef.current = null
-          previousStateRef.current = null
-        }
       }
     },
     [
@@ -1232,31 +1088,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
 
   const handleGameError = useCallback((data: any) => {
     console.log("Game error:", data)
-    
-      // If it's a move validation error, rollback optimistic update
-      if (data.code === "ILLEGAL_MOVE" || data.code === "INVALID_MOVE" || data.code === "PIECE_FROZEN") {
-        // Rollback optimistic update
-        if (previousStateRef.current) {
-          console.log("[ROLLBACK] Reverting optimistic update due to error")
-          // React 18+ automatically batches state updates
-          setGameState((prev) => ({
-            ...prev,
-            board: {
-              ...prev.board,
-              fen: previousStateRef.current!.fen,
-              activeColor: previousStateRef.current!.activeColor,
-            },
-            moves: previousStateRef.current!.moves,
-            lastMove: previousStateRef.current!.lastMove,
-            moveCount: Math.max(0, (prev.moveCount || 0) - 1),
-          }))
-          setIsMyTurn(true) // Restore turn since move was rejected
-          previousStateRef.current = null
-        }
-        Alert.alert("Invalid Move", data.message || data.error || "This move is not valid")
-      } else {
-        Alert.alert("Error", data.message || data.error || "An error occurred")
-      }
+    Alert.alert("Error", data.message || data.error || "An error occurred")
   }, [])
 
   const handleGameWarning = useCallback((data: any) => {
@@ -1265,49 +1097,13 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     Alert.alert("Game Warning", data.message || "An unexpected warning occurred.")
   }, [])
 
-  // Clear possible moves and selection when it's no longer the player's turn
+  // Clear possible moves when it's no longer the player's turn
   useEffect(() => {
     if (!isMyTurn) {
       setPossibleMoves([])
       setSelectedSquare(null)
-      setDragTargetSquare(null)
     }
   }, [isMyTurn])
-
-  // Optimize socket connection for Android (force WebSocket, faster than polling)
-  useEffect(() => {
-    if (!socket) return
-
-    // Force WebSocket transport on mobile for better performance
-    if (Platform.OS === 'android' || Platform.OS === 'ios') {
-      if (socket.io && socket.io.opts) {
-        socket.io.opts.transports = ['websocket']
-        // Reconnect if needed to apply new transport
-        if (!socket.connected) {
-          socket.connect()
-        }
-      }
-    }
-
-    // Monitor connection quality
-    socket.on('connect', () => {
-      console.log('[SOCKET] Connected - transport:', socket.io?.engine?.transport?.name)
-    })
-
-    socket.on('disconnect', (reason) => {
-      console.log('[SOCKET] Disconnected:', reason)
-    })
-
-    socket.on('reconnect', (attemptNumber) => {
-      console.log('[SOCKET] Reconnected after', attemptNumber, 'attempts')
-    })
-
-    return () => {
-      socket.off('connect')
-      socket.off('disconnect')
-      socket.off('reconnect')
-    }
-  }, [socket])
 
   // Set up socket event listeners
   useEffect(() => {
@@ -1364,61 +1160,19 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         return
       }
 
-      // OPTIMISTIC UPDATE: Apply move immediately on client for instant UI feedback
-      const currentFen = gameState.board.fen
-      const optimisticFen = applyOptimisticMove(move, currentFen)
-      
-      if (!optimisticFen) {
-        Alert.alert("Invalid Move", "This move is not valid")
-        return
-      }
-
-      // Store previous state for potential rollback
-      const moveTimestamp = Date.now()
-      previousStateRef.current = {
-        fen: gameState.board.fen,
-        activeColor: gameState.board.activeColor,
-        moves: [...(gameState.moves || [])],
-        lastMove: gameState.lastMove,
-      }
-
-      // Track this as our pending optimistic move
-      pendingOptimisticMoveRef.current = {
-        from: move.from,
-        to: move.to,
-        timestamp: moveTimestamp,
-      }
-
-      // Update board IMMEDIATELY (optimistic) - this makes Android feel instant
-      // React 18+ automatically batches state updates, so no need for unstable_batchedUpdates
-      // Update board state immediately
-      setGameState((prev) => ({
-        ...prev,
-        board: {
-          ...prev.board,
-          fen: optimisticFen,
-          activeColor: prev.board.activeColor === 'white' ? 'black' : 'white',
-        },
-        moves: [...(prev.moves || []), move],
-        lastMove: { from: move.from, to: move.to },
-        moveCount: (prev.moveCount || 0) + 1,
-      }))
-
-      // Update UI state immediately (React will batch these automatically)
+      // Immediately update local state to show move was made (optimistic update)
       setIsMyTurn(false)
       setSelectedSquare(null)
       setPossibleMoves([])
-      resetDragVisuals()
 
-      // Send to server (server will confirm and sync any additional state)
       socket.emit("game:makeMove", {
         move: { from: move.from, to: move.to, promotion: move.promotion },
-        timestamp: moveTimestamp,
+        timestamp: Date.now(),
       })
 
-      console.log("[DEBUG] Move emitted (optimistic update applied):", { from: move.from, to: move.to, promotion: move.promotion })
+      console.log("[DEBUG] Move emitted:", { from: move.from, to: move.to, promotion: move.promotion })
     },
-    [socket, isMyTurn, frozenPieces, playerColor, gameState.board.fen, gameState.moves, gameState.lastMove, applyOptimisticMove, resetDragVisuals],
+    [socket, isMyTurn, frozenPieces, playerColor],
   )
 
   const restoreSelectionToOrigin = useCallback(() => {
@@ -1436,28 +1190,6 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     (square: string, piece: string, x: number, y: number) => {
       const boundedX = Math.min(Math.max(x, 0), boardSize)
       const boundedY = Math.min(Math.max(y, 0), boardSize)
-      
-      // Store initial position for gesture tracking
-      dragStartPosition.current = { x: boundedX, y: boundedY }
-      pan.setValue({ x: 0, y: 0 })
-      isDragging.current = true
-      
-      // Animate scale and opacity for smooth drag start
-      Animated.parallel([
-        Animated.spring(scaleAnim, {
-          toValue: 1.2,
-          useNativeDriver: true,
-          tension: 300,
-          friction: 7,
-        }),
-        Animated.spring(opacityAnim, {
-          toValue: 0.95,
-          useNativeDriver: true,
-          tension: 300,
-          friction: 7,
-        }),
-      ]).start()
-
       setDragState({
         active: true,
         from: square,
@@ -1469,7 +1201,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       setSelectedSquare(square)
       requestPossibleMoves(square)
     },
-    [requestPossibleMoves, pan, scaleAnim, opacityAnim, boardSize],
+    [requestPossibleMoves],
   )
 
   const finishDragMove = useCallback(
@@ -1521,64 +1253,30 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (evt, gestureState) => {
-          // Require minimum movement to start drag (better for Android)
-          const minDistance = Platform.OS === 'android' ? 8 : 4
-          if (Math.abs(gestureState.dx) < minDistance && Math.abs(gestureState.dy) < minDistance) return false
-          
-          // Get the touch coordinates - prefer locationX/locationY (relative to view)
-          // which works better on mobile, fallback to pageX/pageY for web
-          const nativeEvent = evt.nativeEvent as any
-          const x = nativeEvent.locationX !== undefined ? nativeEvent.locationX : nativeEvent.pageX
-          const y = nativeEvent.locationY !== undefined ? nativeEvent.locationY : nativeEvent.pageY
-          const square = getSquareFromCoords(x, y)
+          if (Math.abs(gestureState.dx) < 4 && Math.abs(gestureState.dy) < 4) return false
+          const square = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
           return canDragSquare(square)
         },
         onPanResponderGrant: (evt) => {
-          // Get the touch coordinates - prefer locationX/locationY (relative to view)
-          const nativeEvent = evt.nativeEvent as any
-          const x = nativeEvent.locationX !== undefined ? nativeEvent.locationX : nativeEvent.pageX
-          const y = nativeEvent.locationY !== undefined ? nativeEvent.locationY : nativeEvent.pageY
-          const square = getSquareFromCoords(x, y)
+          const { locationX, locationY } = evt.nativeEvent
+          const square = getSquareFromCoords(locationX, locationY)
           if (!square) return
           const piece = getPieceAt(square)
           if (piece && canDragSquare(square)) {
-            startDrag(square, piece, x, y)
+            startDrag(square, piece, locationX, locationY)
           }
         },
-        onPanResponderMove: (evt, gestureState) => {
-          if (!dragStateRef.current.active || !isDragging.current) return
-          
-          // Calculate new position using gestureState.dx/dy (more reliable on Android)
-          const newX = dragStartPosition.current.x + gestureState.dx
-          const newY = dragStartPosition.current.y + gestureState.dy
-          
-          // Bound the position to board limits
-          const boundedX = Math.max(0, Math.min(newX, boardSize))
-          const boundedY = Math.max(0, Math.min(newY, boardSize))
-          
-          // Update animated value for smooth movement
-          pan.setValue({
-            x: boundedX - dragStartPosition.current.x,
-            y: boundedY - dragStartPosition.current.y,
-          })
-          
-          // Update drag state for coordinate tracking
+        onPanResponderMove: (evt) => {
+          if (!dragStateRef.current.active) return
+          const { locationX, locationY } = evt.nativeEvent
+          const boundedX = Math.min(Math.max(locationX, 0), boardSize)
+          const boundedY = Math.min(Math.max(locationY, 0), boardSize)
           setDragState((prev) => (prev.active ? { ...prev, x: boundedX, y: boundedY } : prev))
-          
-          // Update hover square
           const hoverSquare = getSquareFromCoords(boundedX, boundedY)
           setDragTargetSquare(hoverSquare)
         },
-        onPanResponderRelease: (evt, gestureState) => {
-          if (!dragStateRef.current.active) return
-          
-          // Calculate final position
-          const finalX = dragStartPosition.current.x + gestureState.dx
-          const finalY = dragStartPosition.current.y + gestureState.dy
-          const boundedX = Math.max(0, Math.min(finalX, boardSize))
-          const boundedY = Math.max(0, Math.min(finalY, boardSize))
-          const targetSquare = getSquareFromCoords(boundedX, boundedY)
-          
+        onPanResponderRelease: (evt) => {
+          const targetSquare = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
           finishDragMove(targetSquare)
         },
         onPanResponderTerminate: () => {
@@ -1587,12 +1285,10 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       }),
     [
       abortDrag,
-      boardSize,
       canDragSquare,
       finishDragMove,
       getPieceAt,
       getSquareFromCoords,
-      pan,
       startDrag,
     ],
   )
@@ -1823,9 +1519,6 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         getSquareOverlays={getSquareOverlays}
         panResponder={panResponder}
         customSquareStyles={getCustomSquareStyles}
-        animatedPan={pan}
-        animatedScale={scaleAnim}
-        animatedOpacity={opacityAnim}
       />
     )
   }, [
@@ -1844,9 +1537,6 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     getSquareOverlays,
     panResponder,
     getCustomSquareStyles,
-    pan,
-    scaleAnim,
-    opacityAnim,
   ])
 
   const renderPlayerInfo = useCallback(
