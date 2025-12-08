@@ -264,9 +264,6 @@ For EAS builds or production bundles, Expo injects `EXPO_PUBLIC_*` envs at build
 
 This project is licensed under the ISC License - see the [LICENSE](LICENSE) file for details.
 
-## 👨‍💻 Author
-
-**Swati** - [codewithswatiee](https://github.com/codewithswatiee)
 
 ## 🆘 Troubleshooting
 
@@ -308,4 +305,5 @@ This project is licensed under the ISC License - see the [LICENSE](LICENSE) file
 ---
 
 **Happy Coding! 🚀**
+
 
