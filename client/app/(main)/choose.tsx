@@ -1,7 +1,7 @@
 import { getSocket } from "@/utils/socketManager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -60,10 +60,10 @@ export default function Choose() {
       subtitle: "Time Control: 3+2",
       description: "Move your queen to start a decay timer; later a major piece gets one too.",
       rulesItems: [
-        "On your first queen move, a 25s Decay Timer starts (runs only on your turns).",
+        "On your first queen move, a 40s Decay Timer starts (runs only on your turns).",
         "Each subsequent move of that same queen adds +2s to its remaining decay time.",
         "If the timer expires, the queen freezes and cannot be moved again.",
-        "After your queen freezes, the next major piece you move starts a 20s Decay Timer with the same behavior.",
+        "After your queen freezes, the next major piece you move starts a 30s Decay Timer with the same behavior.",
       ],
       color: "#2C2C2E"
     },
@@ -123,7 +123,6 @@ export default function Choose() {
   });
   const [isFetchingLivePlayers, setIsFetchingLivePlayers] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [enablePullToRefresh, setEnablePullToRefresh] = useState(canUsePullToRefresh);
   const [refreshKey, setRefreshKey] = useState(0);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -247,6 +246,20 @@ export default function Choose() {
       });
   }, [fetchUserId, clearRefreshTimeout]);
 
+  const refreshControl = useMemo(() => {
+    if (!canUsePullToRefresh) return undefined;
+    return (
+      <RefreshControl
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        enabled={!refreshing}
+        tintColor="#00A862"
+        colors={["#00A862"]}
+        progressViewOffset={24}
+      />
+    );
+  }, [handleRefresh, refreshing]);
+
  
 
   const handleVariantSelect = async (variant: string) => {
@@ -362,27 +375,7 @@ export default function Choose() {
           <ScrollView
             {...smoothScrollProps}
             contentContainerStyle={chooseScreenStyles.scrollViewContent}
-            onScroll={(e) => {
-              if (!canUsePullToRefresh) {
-                return;
-              }
-              const y = e.nativeEvent.contentOffset?.y ?? 0;
-              // Only allow pull-to-refresh when fully scrolled to the top
-              const shouldEnable = y <= 0;
-              if (shouldEnable !== enablePullToRefresh) setEnablePullToRefresh(shouldEnable);
-            }}
-            refreshControl={
-              enablePullToRefresh && canUsePullToRefresh ? (
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={handleRefresh}
-                  enabled={!refreshing}
-                  tintColor="#00A862"
-                  colors={["#00A862"]}
-                  progressViewOffset={24}
-                />
-              ) : undefined
-            }
+            refreshControl={refreshControl}
           >
             {/* Navigation Buttons */}
             <View style={chooseScreenStyles.navButtonsContainer}>
@@ -489,10 +482,10 @@ function RulesModalContent() {
 
   const decayRules = [
     "Time Control: 3+2.",
-    "First queen move starts a 25s Decay Timer (runs on your turns only).",
+    "First queen move starts a 40s Decay Timer (runs on your turns only).",
     "Each subsequent move of that queen adds +2s to the decay timer.",
     "If the timer expires, the queen freezes and cannot be moved again.",
-    "After queen freezes, the next major piece you move starts a 20s Decay Timer with the same behavior.",
+    "After queen freezes, the next major piece you move starts a 30s Decay Timer with the same behavior.",
   ];
 
   const crazyTimerRules = [

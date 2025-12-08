@@ -57,8 +57,8 @@ const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"]
 const MAJOR_PIECES = ["q", "r", "b", "n", "Q", "R", "B", "N"]
 
 // Decay timer constants
-const QUEEN_INITIAL_DECAY_TIME = 25000 // 25 seconds
-const MAJOR_PIECE_INITIAL_DECAY_TIME = 20000 // 20 seconds
+const QUEEN_INITIAL_DECAY_TIME = 40000 // 40 seconds
+const MAJOR_PIECE_INITIAL_DECAY_TIME = 30000 // 30 seconds
 const DECAY_TIME_INCREMENT = 2000 // +2 seconds per additional move
 
 // Format decay timer in MM:SS format

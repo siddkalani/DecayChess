@@ -36,7 +36,7 @@ type LastMove = {
 };
 
 const MOVE_INTERVAL_MS = 1800;
-const DECAY_TIMER_START = 25;
+const DECAY_TIMER_START = 40;
 const DECAY_DRAIN_PER_MOVE = 8;
 
 const BOARD_COLUMNS = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
@@ -81,7 +81,7 @@ const SHOWCASE_MOVES: ShowcaseMove[] = [
   {
     from: "d1",
     to: "h5",
-    note: "First queen move starts a 25s Decay timer.",
+    note: "First queen move starts a 40s Decay timer.",
     triggersDecay: true,
     isQueenMove: true,
   },

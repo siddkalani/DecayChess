@@ -63,19 +63,7 @@ export const ChessSquare: React.FC<ChessSquareProps> = ({
   let borderColor = "transparent"
   let borderWidth = 0
 
-  if (isDragTarget) {
-    borderColor = BOARD_THEME.highlight.selected
-    borderWidth = 2
-  } else if (isPossibleMove && piece) {
-    borderColor = BOARD_THEME.highlight.capture
-    borderWidth = 2
-  } else if (isPossibleMove) {
-    borderColor = BOARD_THEME.highlight.move
-    borderWidth = 2
-  } else if (isSelected) {
-    borderColor = BOARD_THEME.highlight.selected
-    borderWidth = 2
-  } else if (isLastMove) {
+  if (isLastMove) {
     borderColor = BOARD_THEME.highlight.lastMove
     borderWidth = 1
   }
@@ -229,4 +217,3 @@ export const ChessSquare: React.FC<ChessSquareProps> = ({
     </View>
   )
 }
-

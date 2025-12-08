@@ -14,8 +14,8 @@ type Color = "white" | "black"
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"]
 const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"]
 
-const QUEEN_INITIAL_DECAY_TIME = 25000
-const MAJOR_INITIAL_DECAY_TIME = 20000
+const QUEEN_INITIAL_DECAY_TIME = 40000
+const MAJOR_INITIAL_DECAY_TIME = 30000
 const DECAY_INCREMENT = 2000
 
 export default function DecayOffline() {

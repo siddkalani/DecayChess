@@ -445,8 +445,8 @@ export const decayStyles = StyleSheet.create({
   },
   possibleMoveDot: {
     position: "absolute",
-    backgroundColor: "#16a34a",
-    opacity: 0.8,
+    backgroundColor: "#d1fae5",
+    opacity: 0.5,
   },
   captureIndicator: {
     position: "absolute",
