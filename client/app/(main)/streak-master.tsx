@@ -237,7 +237,8 @@ export default function StreakMasterScreen() {
     
     let name = variantNames[variant as keyof typeof variantNames] || variant
     if (subvariant) {
-      name += ` (${subvariant})`
+      const displaySubvariant = subvariant === "bullet" ? "Blitz" : subvariant
+      name += ` (${displaySubvariant})`
     }
     return name
   }

@@ -27,8 +27,8 @@ const GAME_VARIANTS = {
       bullet: {
         name: 'bullet',
         initialFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-        timeControl: { base: 60 * 1000, increment: 0 }, // 1+0 (corrected from 1+1)
-        description: 'Ultra-fast chess with 1 minute base, no increment'
+        timeControl: { base: 5 * 60 * 1000, increment: 0 }, // 5+0
+        description: 'Fast blitz chess with 5 minute base, no increment'
       }
     }
   },

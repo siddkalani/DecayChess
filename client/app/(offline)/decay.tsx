@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router"
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Dimensions, Modal, ScrollView, Text, TouchableOpacity, View, StyleSheet } from "react-native"
 import { Chess } from "chess.js"
+import type { Square } from "chess.js"
 import Layout from "../components/layout/Layout"
 import { variantStyles } from "@/app/lib/styles"
 import { getPieceComponent } from "../components/game/chessPieces"
@@ -147,6 +148,22 @@ export default function DecayOffline() {
 
   const isMajor = (t: string) => ['r','n','b'].includes(t.toLowerCase())
 
+  const getPieceColor = (p: string): Color => (p === p.toUpperCase() ? 'white' : 'black')
+
+  const findQueenInfo = (gameInstance: Chess, color: Color): { exists: boolean; square?: string } => {
+    const board = gameInstance.board()
+    for (let r = 0; r < 8; r++) {
+      for (let f = 0; f < 8; f++) {
+        const sq = board[r][f]
+        if (sq && sq.type === 'q' && (color === 'white' ? sq.color === 'w' : sq.color === 'b')) {
+          const square = `${FILES[f]}${8 - r}`
+          return { exists: true, square }
+        }
+      }
+    }
+    return { exists: false }
+  }
+
   const shouldPromote = (from: string, to: string) => {
     const piece = getPieceAt(from)
     if (!piece) return false
@@ -170,7 +187,7 @@ export default function DecayOffline() {
       // cannot select frozen
       if (frozenSquares[activeColor].includes(square)) { Alert.alert('Frozen', 'This piece is frozen by decay.'); return }
       setSelectedSquare(square)
-      try { const moves = game.moves({ square, verbose: true }) as any[]; setPossibleMoves(moves.map((m) => m.to)) } catch { setPossibleMoves([]) }
+      try { const moves = game.moves({ square: square as any, verbose: true }) as any[]; setPossibleMoves(moves.map((m) => m.to)) } catch { setPossibleMoves([]) }
     } else { setSelectedSquare(null); setPossibleMoves([]) }
   }
 
@@ -182,7 +199,7 @@ export default function DecayOffline() {
     // Offline simple mode: do not adjust time on move; timers tick only during turn via interval
 
     const newGame = new Chess(game.fen())
-    const targetPiece = newGame.get(m.to)
+    const targetPiece = newGame.get(m.to as Square)
     let result
     try { result = newGame.move(m) } catch { Alert.alert('Invalid move', 'This move is not legal.'); return }
     if (!result) { Alert.alert('Invalid move', 'This move is not legal.'); return }
@@ -197,19 +214,6 @@ export default function DecayOffline() {
     const movedFrom = m.from
     const piece = result.piece as string
     const movedTo = m.to
-    setQueenDecay((prev) => {
-      const next = { ...prev }
-      const q = next[activeColor]
-      if (piece.toLowerCase() === 'q') {
-        if (!q.active && !q.frozen) {
-          q.active = true; q.timeRemaining = QUEEN_INITIAL_DECAY_TIME; q.square = movedTo; q.count = 1
-        } else if (q.active && !q.frozen) {
-          q.count += 1; q.timeRemaining = Math.min(QUEEN_INITIAL_DECAY_TIME, q.timeRemaining + DECAY_INCREMENT); q.square = movedTo
-        }
-      }
-      return next
-    })
-
     setMajorDecay((prev) => {
       const next = { ...prev }
       // if queen frozen and no current major active/frozen, start on this major move
@@ -226,11 +230,45 @@ export default function DecayOffline() {
       } else if (next.active && !next.frozen) {
         // If decaying piece no longer exists at its square (captured or moved illegally), clear
         const checkGame = new Chess(newGame.fen())
-        const p = checkGame.get(next.square!)
+        const p = checkGame.get(next.square! as Square)
         if (!p || p.type !== (next.pieceType as any) || (next.color === 'white' ? p.color !== 'w' : p.color !== 'b')) {
           next.active = false; next.timeRemaining = 0; next.square = undefined; next.pieceType = undefined; next.count = 0; next.color = undefined
         }
       }
+      return next
+    })
+
+    // Sync queen decay state to board (handles queen capture and square updates)
+    setQueenDecay((prev) => {
+      const next = { ...prev }
+      // If the moving piece is a queen, update its timer first
+      if (piece.toLowerCase() === 'q') {
+        const q = next[activeColor]
+        if (!q.active && !q.frozen) {
+          next[activeColor] = { ...q, active: true, frozen: false, timeRemaining: QUEEN_INITIAL_DECAY_TIME, square: movedTo, count: 1 }
+        } else if (q.active && !q.frozen) {
+          next[activeColor] = {
+            ...q,
+            count: q.count + 1,
+            timeRemaining: Math.min(QUEEN_INITIAL_DECAY_TIME, q.timeRemaining + DECAY_INCREMENT),
+            square: movedTo,
+          }
+        }
+      }
+
+      (['white', 'black'] as Color[]).forEach((color: Color) => {
+        const info = findQueenInfo(newGame, color)
+        const q = next[color]
+        if (!info.exists) {
+          // Queen not on board: mark as frozen entry point for major decay with fresh timer (no carryover)
+          next[color] = { active: false, frozen: true, timeRemaining: 0, count: 0 }
+        } else {
+          // Update queen square for display
+          if (q.active || q.frozen) {
+            next[color] = { ...q, square: info.square }
+          }
+        }
+      })
       return next
     })
 
@@ -268,6 +306,38 @@ export default function DecayOffline() {
     const isLastMove = lastMove && (lastMove.from === square || lastMove.to === square)
     const frozen = frozenSquares[activeColor].includes(square) || frozenSquares[activeColor === 'white' ? 'black' : 'white'].includes(square)
 
+    // Decay badge (matches 1v1 style: small circle above piece)
+    let decayBadge: React.ReactNode = null
+    if (piece) {
+      const color = getPieceColor(piece)
+      const queen = queenDecay[color]
+      const major = majorDecay
+      const showQueen = queen.active && queen.square === square
+      const showMajor = major.active && major.color === color && major.square === square
+      if (showQueen || showMajor) {
+        const time = Math.max(0, Math.ceil((showQueen ? queen.timeRemaining : major.timeRemaining) / 1000))
+        decayBadge = (
+          <View
+            style={{
+              position: 'absolute',
+              top: -14,
+              alignSelf: 'center',
+              backgroundColor: '#f59e0b',
+              width: 24,
+              height: 24,
+              borderRadius: 12,
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderWidth: 1,
+              borderColor: '#1f2937',
+            }}
+          >
+            <Text style={{ color: '#111827', fontSize: 10, fontWeight: '700' }}>{time}s</Text>
+          </View>
+        )
+      }
+    }
+
     let borderColor = "transparent"
     let borderWidth = 0
     if (isPossibleMove && piece) { borderColor = '#dc2626'; borderWidth = 2 }
@@ -282,6 +352,7 @@ export default function DecayOffline() {
           style={[variantStyles.square, { width: squareSize, height: squareSize, backgroundColor: isLight ? '#F0D9B5' : '#769656', borderWidth, borderColor }]}
           onPress={() => handleSquarePress(square)}
         >
+          {decayBadge}
           {file === 'a' && (
             <Text style={[variantStyles.coordinateLabel, variantStyles.rankLabel, { color: isLight ? '#769656' : '#F0D9B5', fontSize: coordinateFontSize }]}>
               {rank}
@@ -432,7 +503,7 @@ export default function DecayOffline() {
                 <View style={variantStyles.promotionOptions}>
                   {promotionModal.options.map((p) => (
                     <TouchableOpacity key={p} style={variantStyles.promotionOption} onPress={() => handlePromotionSelect(p)}>
-                      <Text style={variantStyles.promotionPieceText}>{p.toUpperCase()}</Text>
+                      <Text style={{ color: '#fff', fontSize: 24, fontWeight: '700' }}>{p.toUpperCase()}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>

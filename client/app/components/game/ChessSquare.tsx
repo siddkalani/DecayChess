@@ -1,5 +1,5 @@
-import React from "react"
-import { Text, TouchableOpacity, View } from "react-native"
+import React, { useRef } from "react"
+import { Text, View, Pressable } from "react-native"
 import { getPieceComponent } from "./chessPieces"
 import { BOARD_THEME } from "@/app/lib/constants/boardTheme"
 import { variantStyles } from "@/app/lib/styles"
@@ -28,6 +28,7 @@ export interface ChessSquareProps {
   coordinateFontSize: number
   pieceSize: number
   onPress: (square: string) => void
+  onTouchStart?: (square: string, event: any) => void
   overlays?: SquareOverlay[]
   customStyles?: {
     square?: any
@@ -50,9 +51,14 @@ export const ChessSquare: React.FC<ChessSquareProps> = ({
   coordinateFontSize,
   pieceSize,
   onPress,
+  onTouchStart,
   overlays = [],
   customStyles = {},
 }) => {
+  // Track if we've handled this touch to prevent duplicate events
+  const touchHandledRef = useRef(false)
+  const touchStartTimeRef = useRef(0)
+
   // Determine border color and width
   let borderColor = "transparent"
   let borderWidth = 0
@@ -105,7 +111,7 @@ export const ChessSquare: React.FC<ChessSquareProps> = ({
           </View>
         ))}
 
-      <TouchableOpacity
+      <Pressable
         style={[
           variantStyles.square,
           customStyles.square,
@@ -117,7 +123,34 @@ export const ChessSquare: React.FC<ChessSquareProps> = ({
             borderColor,
           },
         ]}
-        onPress={() => onPress(square)}
+        delayPressIn={0}
+        delayPressOut={0}
+        onPressIn={() => {
+          // Immediate response on press in (touchstart equivalent)
+          if (onTouchStart) {
+            const now = Date.now()
+            // Prevent duplicate events within 50ms
+            if (now - touchStartTimeRef.current > 50) {
+              touchHandledRef.current = false
+            }
+            touchStartTimeRef.current = now
+            
+            if (!touchHandledRef.current) {
+              touchHandledRef.current = true
+              onTouchStart(square, null)
+            }
+          }
+        }}
+        onPress={() => {
+          // Fallback if onTouchStart didn't handle it
+          if (!touchHandledRef.current) {
+            onPress(square)
+          }
+          // Reset after a short delay
+          setTimeout(() => {
+            touchHandledRef.current = false
+          }, 100)
+        }}
       >
         {/* Coordinate labels */}
         {file === "a" && (
@@ -192,7 +225,7 @@ export const ChessSquare: React.FC<ChessSquareProps> = ({
             ]}
           />
         )}
-      </TouchableOpacity>
+      </Pressable>
     </View>
   )
 }

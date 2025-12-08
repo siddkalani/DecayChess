@@ -26,6 +26,15 @@ const getDefaultSubvariant = (variant?: string) => {
   return undefined;
 };
 
+const formatSubvariantLabel = (variant?: string, subvariant?: string) => {
+  if (!subvariant) return "";
+  if (variant === "classic") {
+    if (subvariant === "bullet") return "Blitz";
+    if (subvariant === "standard") return "Standard";
+  }
+  return subvariant;
+};
+
 export default function MatchMaking() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -112,12 +121,16 @@ export default function MatchMaking() {
       tournamentMatch?: boolean; // This flag tells us if it was a tournament match
     }) => {
       console.log("Received match found response:", response);
+      const matchedVariant = response.variant || variant;
+      const matchedSubvariant = response.subvariant || effectiveSubvariant;
+      const matchedSubvariantLabel = formatSubvariantLabel(matchedVariant, matchedSubvariant);
+      const subLabel = matchedSubvariantLabel ? ` ${matchedSubvariantLabel}` : "";
       if (response.tournamentMatch) {
-          // If a regular user gets matched with a tournament player,
-          // the variant comes from the response, not necessarily the route params.
-          Alert.alert("Cross-Queue Match!", `You've been matched with a tournament player in ${response.variant} ${response.subvariant || ''} with ${response.opponent.name}!`);
+        // If a regular user gets matched with a tournament player,
+        // the variant comes from the response, not necessarily the route params.
+        Alert.alert("Cross-Queue Match!", `You've been matched with a tournament player in ${matchedVariant}${subLabel} with ${response.opponent.name}!`);
       } else {
-          Alert.alert("Match Found!", `You've been matched in ${response.variant} ${response.subvariant || ''} with ${response.opponent.name}!`);
+        Alert.alert("Match Found!", `You've been matched in ${matchedVariant}${subLabel} with ${response.opponent.name}!`);
       }
 
       setOpponent(response.opponent.name);
@@ -135,8 +148,6 @@ export default function MatchMaking() {
         socket.disconnect();        
 
         const sessionId = response.sessionId;
-        const matchedVariant = response.variant || variant;
-        const matchedSubvariant = response.subvariant || effectiveSubvariant;
 
         if (!matchedVariant) {
           console.error("Missing variant info for matched session", response);

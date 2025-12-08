@@ -120,7 +120,7 @@ export async function safeDatabaseOperation(operation, context = "unknown") {
   }
 }
 
-// Create initial state for a bullet game (1+0)
+// Create initial state for a bullet/blitz game (5+0)
 export function createInitialState() {
   try {
     const game = new Chess() // default position
@@ -128,7 +128,7 @@ export function createInitialState() {
     const [position, activeColor, castlingRights, enPassantSquare, halfmoveClock, fullmoveNumber] = fen.split(" ")
 
     const now = Date.now()
-    const bulletTime = 1 * 60 * 1000 // 1 minute in milliseconds
+    const bulletTime = 5 * 60 * 1000 // 5 minutes in milliseconds
     const increment = 0 // No increment for bullet
 
     return {

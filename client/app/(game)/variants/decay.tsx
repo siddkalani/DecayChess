@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Dimensions, FlatList, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
 import { unstable_batchedUpdates } from "react-native"
 import type { Socket } from "socket.io-client"
+import { Chess } from "chess.js"
 import { decayStyles, variantStyles } from "@/app/lib/styles"
 import { BOARD_THEME } from "@/app/lib/constants/boardTheme"
 import { DecayChessGameProps, GameState, DecayState, Move } from "@/app/lib/types/decay"
@@ -145,10 +146,46 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     black: safeTimerValue(initialGameState.timeControl.timers.black),
   })
   const dragStateRef = useRef<DragState>(dragState)
+  
+  // Client-side chess instance for instant move calculation
+  const chessInstanceRef = useRef<Chess | null>(null)
+  
+  // Keep chess instance in sync with game state
+  useEffect(() => {
+    if (gameState.board?.fen) {
+      try {
+        chessInstanceRef.current = new Chess(gameState.board.fen)
+      } catch (error) {
+        console.error("Error creating chess instance:", error)
+      }
+    }
+  }, [gameState.board?.fen])
 
   useEffect(() => {
     dragStateRef.current = dragState
   }, [dragState])
+  
+  // Calculate possible moves client-side instantly
+  const calculatePossibleMovesClient = useCallback((square: string): string[] => {
+    if (!chessInstanceRef.current) return []
+    
+    try {
+      // Get all moves from this square
+      const moves = chessInstanceRef.current.moves({ square, verbose: true }) as any[]
+      
+      // Filter out moves from frozen pieces
+      const frozen = frozenPieces[playerColor]
+      if (frozen.has(square)) {
+        return [] // Piece is frozen, no moves
+      }
+      
+      // Return just the destination squares
+      return moves.map((m: any) => m.to)
+    } catch (error) {
+      console.error("Error calculating moves client-side:", error)
+      return []
+    }
+  }, [frozenPieces, playerColor])
 
   const lastServerSync = useRef<{
     white: number
@@ -955,6 +992,12 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
   )
 
   const handlePossibleMoves = useCallback((data: { square: string; moves: any[] }) => {
+    // Only update if this is for the currently selected square
+    // This ensures server response doesn't override instant client calculation unnecessarily
+    if (selectedSquareRef.current !== data.square) {
+      return // Ignore if not for current selection
+    }
+    
     console.log("Possible moves (raw):", data.moves)
     let moves: string[] = []
 
@@ -969,6 +1012,8 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     }
 
     console.log("Possible moves (dest squares):", moves)
+    // Update with server response (may have decay-specific filtering)
+    possibleMovesRef.current = moves
     setPossibleMoves(moves)
   }, [])
 
@@ -1248,25 +1293,222 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     restoreSelectionToOrigin()
   }, [resetDragVisuals, restoreSelectionToOrigin])
 
+  // Refs to track state for immediate response without waiting for state updates
+  const selectedSquareRef = useRef<string | null>(null)
+  const possibleMovesRef = useRef<string[]>([])
+  
+  useEffect(() => {
+    selectedSquareRef.current = selectedSquare
+  }, [selectedSquare])
+  
+  useEffect(() => {
+    possibleMovesRef.current = possibleMoves
+  }, [possibleMoves])
+
+  // Immediate touch handler for zero-latency piece selection
+  const handleSquareTouchStart = useCallback(
+    (square: string, event: any) => {
+      // Don't interfere if dragging is active
+      if (dragStateRef.current.active) return
+      
+      // Use refs for immediate response without waiting for state
+      const currentSelected = selectedSquareRef.current
+      const currentPossibleMoves = possibleMovesRef.current
+      
+      // Immediate toggle: if same square, deselect instantly
+      if (currentSelected === square) {
+        // Update refs immediately for next touch
+        selectedSquareRef.current = null
+        possibleMovesRef.current = []
+        // Update state (non-blocking)
+        setSelectedSquare(null)
+        setPossibleMoves([])
+        return
+      }
+
+      // Immediate selection: if clicking on a possible move, execute it
+      if (currentSelected && currentPossibleMoves.includes(square)) {
+        const piece = getPieceAt(currentSelected)
+        const isPromotion =
+          piece &&
+          ((piece.toLowerCase() === "p" && playerColor === "white" && square[1] === "8") ||
+            (piece.toLowerCase() === "p" && playerColor === "black" && square[1] === "1"))
+
+        if (isPromotion) {
+          const options = ["q", "r", "b", "n"]
+          // Update refs immediately
+          selectedSquareRef.current = null
+          possibleMovesRef.current = []
+          // Update state
+          setPromotionModal({ visible: true, from: currentSelected, to: square, options })
+          setSelectedSquare(null)
+          setPossibleMoves([])
+          return
+        }
+
+        // Execute move immediately - update refs first
+        selectedSquareRef.current = null
+        possibleMovesRef.current = []
+        // Then update state and make move (non-blocking)
+        setSelectedSquare(null)
+        setPossibleMoves([])
+        // Make move asynchronously to not block UI
+        requestAnimationFrame(() => {
+          makeMove({ from: currentSelected, to: square })
+        })
+        return
+      }
+
+      // Immediate piece selection: check if it's a valid piece to select
+      const piece = getPieceAt(square)
+      if (isMyTurn && piece && isPieceOwnedByPlayer(piece, playerColor)) {
+        // Check if frozen
+        if (frozenPieces[playerColor].has(square)) {
+          Alert.alert("Frozen Piece", "This piece is frozen due to decay and cannot be moved!")
+          return
+        }
+
+        // Calculate moves client-side instantly for immediate visual feedback
+        const instantMoves = calculatePossibleMovesClient(square)
+        possibleMovesRef.current = instantMoves
+        
+        // Update refs immediately for instant visual feedback
+        selectedSquareRef.current = square
+        // Update state immediately with client-calculated moves (non-blocking)
+        setSelectedSquare(square)
+        setPossibleMoves(instantMoves)
+        
+        // Still request from server for validation/updates (async, non-blocking)
+        requestAnimationFrame(() => {
+          requestPossibleMoves(square)
+        })
+      } else {
+        // Deselect immediately if clicking empty square or opponent piece
+        selectedSquareRef.current = null
+        possibleMovesRef.current = []
+        setSelectedSquare(null)
+        setPossibleMoves([])
+      }
+    },
+    [
+      isMyTurn,
+      playerColor,
+      frozenPieces,
+      makeMove,
+      requestPossibleMoves,
+      getPieceAt,
+      isPieceOwnedByPlayer,
+      calculatePossibleMovesClient,
+    ],
+  )
+
+  // Track touch start for immediate selection
+  const touchStartSquareRef = useRef<string | null>(null)
+  const touchStartTimeRef = useRef<number>(0)
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
+        // Capture immediately for any square to enable instant selection
+        onStartShouldSetPanResponder: (evt) => {
+          const square = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
+          if (!square) return false
+          
+          // Store touch start info for immediate selection in Grant
+          touchStartSquareRef.current = square
+          touchStartTimeRef.current = Date.now()
+          
+          // Return true to capture - we'll handle selection in Grant
+          return true
+        },
         onMoveShouldSetPanResponder: (evt, gestureState) => {
+          // If already dragging, continue
+          if (dragStateRef.current.active) return true
+          
+          // Only start dragging if movement exceeds threshold
           if (Math.abs(gestureState.dx) < 4 && Math.abs(gestureState.dy) < 4) return false
           const square = getSquareFromCoords(evt.nativeEvent.locationX, evt.nativeEvent.locationY)
           return canDragSquare(square)
         },
         onPanResponderGrant: (evt) => {
           const { locationX, locationY } = evt.nativeEvent
-          const square = getSquareFromCoords(locationX, locationY)
+          const square = getSquareFromCoords(locationX, locationY) || touchStartSquareRef.current
           if (!square) return
+          
           const piece = getPieceAt(square)
-          if (piece && canDragSquare(square)) {
-            startDrag(square, piece, locationX, locationY)
+          const currentSelected = selectedSquareRef.current
+          const currentPossibleMoves = possibleMovesRef.current
+          
+          // Handle immediate selection/move - no delay
+          if (currentSelected === square) {
+            // Deselect immediately
+            selectedSquareRef.current = null
+            possibleMovesRef.current = []
+            setSelectedSquare(null)
+            setPossibleMoves([])
+          } else if (currentSelected && currentPossibleMoves.includes(square)) {
+            // Immediate move execution
+            const fromSquare = currentSelected
+            const fromPiece = getPieceAt(fromSquare)
+            const isPromotion =
+              fromPiece &&
+              ((fromPiece.toLowerCase() === "p" && playerColor === "white" && square[1] === "8") ||
+                (fromPiece.toLowerCase() === "p" && playerColor === "black" && square[1] === "1"))
+
+            if (isPromotion) {
+              const options = ["q", "r", "b", "n"]
+              selectedSquareRef.current = null
+              possibleMovesRef.current = []
+              setPromotionModal({ visible: true, from: fromSquare, to: square, options })
+              setSelectedSquare(null)
+              setPossibleMoves([])
+            } else {
+              selectedSquareRef.current = null
+              possibleMovesRef.current = []
+              setSelectedSquare(null)
+              setPossibleMoves([])
+              // Make move immediately
+              makeMove({ from: fromSquare, to: square })
+            }
+          } else if (isMyTurn && piece && isPieceOwnedByPlayer(piece, playerColor)) {
+            // Select piece immediately (if draggable, dragging will start in Move if movement detected)
+            if (!frozenPieces[playerColor].has(square)) {
+              // Calculate moves client-side instantly
+              const instantMoves = calculatePossibleMovesClient(square)
+              possibleMovesRef.current = instantMoves
+              selectedSquareRef.current = square
+              setSelectedSquare(square)
+              setPossibleMoves(instantMoves)
+              // Still request from server for validation (async, non-blocking)
+              requestAnimationFrame(() => {
+                requestPossibleMoves(square)
+              })
+            }
+          } else {
+            // Deselect
+            selectedSquareRef.current = null
+            possibleMovesRef.current = []
+            setSelectedSquare(null)
+            setPossibleMoves([])
           }
         },
-        onPanResponderMove: (evt) => {
+        onPanResponderMove: (evt, gestureState) => {
+          // If movement detected and we have a draggable piece, start drag
+          if (!dragStateRef.current.active && (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2)) {
+            const square = touchStartSquareRef.current
+            if (square) {
+              const piece = getPieceAt(square)
+              if (piece && canDragSquare(square)) {
+                // Cancel selection and start drag
+                selectedSquareRef.current = null
+                possibleMovesRef.current = []
+                setSelectedSquare(null)
+                setPossibleMoves([])
+                startDrag(square, piece, evt.nativeEvent.locationX, evt.nativeEvent.locationY)
+              }
+            }
+          }
+          
           if (!dragStateRef.current.active) return
           const { locationX, locationY } = evt.nativeEvent
           const boundedX = Math.min(Math.max(locationX, 0), boardSize)
@@ -1290,6 +1532,13 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       getPieceAt,
       getSquareFromCoords,
       startDrag,
+      isMyTurn,
+      playerColor,
+      frozenPieces,
+      makeMove,
+      requestPossibleMoves,
+      isPieceOwnedByPlayer,
+      calculatePossibleMovesClient,
     ],
   )
 
@@ -1516,6 +1765,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         lastMove={lastMove}
         getPieceAt={getPieceAt}
         onSquarePress={handleSquarePress}
+        onSquareTouchStart={handleSquareTouchStart}
         getSquareOverlays={getSquareOverlays}
         panResponder={panResponder}
         customSquareStyles={getCustomSquareStyles}
@@ -1534,6 +1784,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     lastMove,
     getPieceAt,
     handleSquarePress,
+    handleSquareTouchStart,
     getSquareOverlays,
     panResponder,
     getCustomSquareStyles,

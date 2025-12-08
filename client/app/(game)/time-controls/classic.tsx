@@ -5,8 +5,8 @@ import { Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const timeControls = [
-  { label: "Bullet", description: "1+0 (1 min, no increment)" },
-  { label: "Standard", description: "10 mins" },
+  { key: "bullet", label: "Blitz", description: "5+0 (5 min, no increment)" },
+  { key: "standard", label: "Standard", description: "10+0 (10 min, no increment)" },
 ];
 
 export default function ClassicTimeControl() {
@@ -20,8 +20,8 @@ export default function ClassicTimeControl() {
     if (!userId) return;
 
     const tc = timeControls[selected];
-    const subvariant = tc.label.toLowerCase();
     if (!tc) return;
+    const subvariant = tc.key;
 
     // Briefly show connecting state
     setSocketConnecting(true);
@@ -75,7 +75,7 @@ export default function ClassicTimeControl() {
           </Text>
       {timeControls.map((tc, idx) => (
         <TouchableOpacity
-          key={tc.label}
+          key={tc.key}
           onPress={() => setSelected(idx)}
           style={{
             backgroundColor: selected === idx ? "#00A862" : "#2C2F33",

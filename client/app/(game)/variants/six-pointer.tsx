@@ -6,6 +6,7 @@ import { useRouter } from "expo-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Dimensions, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
 import type { Socket } from "socket.io-client"
+import { Chess } from "chess.js"
 import { sixPointerStyles, variantStyles } from "@/app/lib/styles"
 import { BOARD_THEME } from "@/app/lib/constants/boardTheme"
 import { usePreventEarlyExit } from "@/app/lib/hooks/usePreventEarlyExit"
@@ -88,10 +89,51 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     black: safeTimerValue(initialGameState.timeControl.timers.black),
   })
   const dragStateRef = useRef<DragState>(dragState)
+  
+  // Refs to track state for immediate response
+  const selectedSquareRef = useRef<string | null>(null)
+  const possibleMovesRef = useRef<string[]>([])
+  
+  // Client-side chess instance for instant move calculation
+  const chessInstanceRef = useRef<Chess | null>(null)
+  
+  // Keep chess instance in sync with game state
+  useEffect(() => {
+    if (gameState.board?.fen) {
+      try {
+        chessInstanceRef.current = new Chess(gameState.board.fen)
+      } catch (error) {
+        console.error("Error creating chess instance:", error)
+      }
+    }
+  }, [gameState.board?.fen])
+  
+  useEffect(() => {
+    selectedSquareRef.current = selectedSquare
+  }, [selectedSquare])
+  
+  useEffect(() => {
+    possibleMovesRef.current = possibleMoves
+  }, [possibleMoves])
 
   useEffect(() => {
     dragStateRef.current = dragState
   }, [dragState])
+  
+  // Calculate possible moves client-side instantly
+  const calculatePossibleMovesClient = useCallback((square: string): string[] => {
+    if (!chessInstanceRef.current) return []
+    
+    try {
+      // Get all moves from this square
+      const moves = chessInstanceRef.current.moves({ square, verbose: true }) as any[]
+      // Return just the destination squares
+      return moves.map((m: any) => m.to)
+    } catch (error) {
+      console.error("Error calculating moves client-side:", error)
+      return []
+    }
+  }, [])
 
   const lastServerSync = useRef<{
     white: number
@@ -1109,9 +1151,20 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
     // Only allow selecting a piece if it's the player's turn and the piece belongs to them
     const piece = getPieceAt(square)
     if (isMyTurn && piece && isPieceOwnedByPlayer(piece, playerColor)) {
+      // Calculate moves client-side instantly for immediate visual feedback
+      const instantMoves = calculatePossibleMovesClient(square)
+      possibleMovesRef.current = instantMoves
+      selectedSquareRef.current = square
+      
+      // Update state immediately with client-calculated moves
       setSelectedSquare(square)
+      setPossibleMoves(instantMoves)
+      
+      // Still request from server for validation/updates (async, non-blocking)
       requestPossibleMoves(square)
     } else {
+      selectedSquareRef.current = null
+      possibleMovesRef.current = []
       setSelectedSquare(null)
       setPossibleMoves([])
     }
@@ -1211,10 +1264,16 @@ export default function SixPointerChessGame({ initialGameState, userId, onNaviga
         y: boundedY,
       })
       setDragTargetSquare(square)
+      // Calculate moves client-side instantly
+      const instantMoves = calculatePossibleMovesClient(square)
+      possibleMovesRef.current = instantMoves
+      selectedSquareRef.current = square
       setSelectedSquare(square)
+      setPossibleMoves(instantMoves)
+      // Still request from server for validation
       requestPossibleMoves(square)
     },
-    [requestPossibleMoves],
+    [requestPossibleMoves, calculatePossibleMovesClient],
   )
 
   const finishDragMove = useCallback(

@@ -29,6 +29,7 @@ export interface ChessBoardProps {
   lastMove: { from: string; to: string } | null
   getPieceAt: (square: string) => string | null
   onSquarePress: (square: string) => void
+  onSquareTouchStart?: (square: string, event: any) => void
   getSquareOverlays?: (file: string, rank: string, square: string, piece: string | null) => SquareOverlay[]
   panResponder?: PanResponder.PanResponderInstance
   customSquareStyles?: (square: string) => { square?: any; piece?: any }
@@ -47,6 +48,7 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
   lastMove,
   getPieceAt,
   onSquarePress,
+  onSquareTouchStart,
   getSquareOverlays,
   panResponder,
   customSquareStyles,
@@ -88,6 +90,7 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
         coordinateFontSize={coordinateFontSize}
         pieceSize={pieceSize}
         onPress={onSquarePress}
+        onTouchStart={onSquareTouchStart}
         overlays={overlays}
         customStyles={customStyles}
       />

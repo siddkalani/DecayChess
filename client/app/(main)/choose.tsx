@@ -100,7 +100,7 @@ export default function Choose() {
     {
       name: "classic",
       title: "Classic Chess",
-      subtitle: "Time Controls: Standard 10+0, Bullet 1+0",
+      subtitle: "Time Controls: Standard 10+0, Blitz 5+0",
       description: "Normal FIDE rules for movement, castling, en passant, promotion, check, and checkmate.",
       rulesItems: [
         "Flagging: main clock expires → loss on time.",
@@ -483,7 +483,7 @@ function RulesModalContent() {
 
   // Per-variant rules
   const classicRules = [
-    "Time Controls: Standard 10+0, Bullet 1+0.",
+    "Time Controls: Standard 10+0, Blitz 5+0.",
     "Normal FIDE rules: movement, castling, en passant, promotion, check, and checkmate.",
   ];
 

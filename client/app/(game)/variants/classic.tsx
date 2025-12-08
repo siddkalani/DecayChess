@@ -4,6 +4,7 @@ import { useRouter } from "expo-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Dimensions, Modal, PanResponder, ScrollView, Text, TouchableOpacity, View } from "react-native"
 import type { Socket } from "socket.io-client"
+import { Chess } from "chess.js"
 import { getSocketInstance } from "../../../utils/socketManager"
 import { getPieceComponent, ChessBoard, type DragState } from "@/app/components"
 import { variantStyles } from "@/app/lib/styles"
@@ -83,10 +84,51 @@ export default function ChessGame({ initialGameState, userId, onNavigateToMenu }
     black: safeTimerValue(initialGameState.timeControl.timers.black, baseTime, increment),
   })
   const dragStateRef = useRef<DragState>(dragState)
+  
+  // Refs to track state for immediate response
+  const selectedSquareRef = useRef<string | null>(null)
+  const possibleMovesRef = useRef<string[]>([])
+  
+  // Client-side chess instance for instant move calculation
+  const chessInstanceRef = useRef<Chess | null>(null)
+  
+  // Keep chess instance in sync with game state
+  useEffect(() => {
+    if (gameState.board?.fen) {
+      try {
+        chessInstanceRef.current = new Chess(gameState.board.fen)
+      } catch (error) {
+        console.error("Error creating chess instance:", error)
+      }
+    }
+  }, [gameState.board?.fen])
+  
+  useEffect(() => {
+    selectedSquareRef.current = selectedSquare
+  }, [selectedSquare])
+  
+  useEffect(() => {
+    possibleMovesRef.current = possibleMoves
+  }, [possibleMoves])
 
   useEffect(() => {
     dragStateRef.current = dragState
   }, [dragState])
+  
+  // Calculate possible moves client-side instantly
+  const calculatePossibleMovesClient = useCallback((square: string): string[] => {
+    if (!chessInstanceRef.current) return []
+    
+    try {
+      // Get all moves from this square
+      const moves = chessInstanceRef.current.moves({ square, verbose: true }) as any[]
+      // Return just the destination squares
+      return moves.map((m: any) => m.to)
+    } catch (error) {
+      console.error("Error calculating moves client-side:", error)
+      return []
+    }
+  }, [])
 
   // Track the last known server state for accurate local countdown
   const lastServerSync = useRef<{
@@ -537,6 +579,11 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
   }
 
   const handlePossibleMoves = (data: { square: string; moves: any[] }) => {
+    // Only update if this is for the currently selected square
+    if (selectedSquareRef.current !== data.square) {
+      return // Ignore if not for current selection
+    }
+    
     console.log("Possible moves (raw):", data.moves)
     let moves: string[] = []
 
@@ -551,6 +598,8 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
     }
 
     console.log("Possible moves (dest squares):", moves)
+    // Update with server response
+    possibleMovesRef.current = moves
     setPossibleMoves(moves)
   }
 
@@ -790,9 +839,20 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
 
     const piece = getPieceAt(square)
     if (isMyTurn && piece && isPieceOwnedByPlayer(piece, playerColor)) {
+      // Calculate moves client-side instantly for immediate visual feedback
+      const instantMoves = calculatePossibleMovesClient(square)
+      possibleMovesRef.current = instantMoves
+      selectedSquareRef.current = square
+      
+      // Update state immediately with client-calculated moves
       setSelectedSquare(square)
+      setPossibleMoves(instantMoves)
+      
+      // Still request from server for validation/updates (async, non-blocking)
       requestPossibleMoves(square)
     } else {
+      selectedSquareRef.current = null
+      possibleMovesRef.current = []
       setSelectedSquare(null)
       setPossibleMoves([])
     }
@@ -864,10 +924,16 @@ const coordinateFontSize = isSmallScreen ? 8 : 10
         y: boundedY,
       })
       setDragTargetSquare(square)
+      // Calculate moves client-side instantly
+      const instantMoves = calculatePossibleMovesClient(square)
+      possibleMovesRef.current = instantMoves
+      selectedSquareRef.current = square
       setSelectedSquare(square)
+      setPossibleMoves(instantMoves)
+      // Still request from server for validation
       requestPossibleMoves(square)
     },
-    [requestPossibleMoves],
+    [requestPossibleMoves, calculatePossibleMovesClient],
   )
 
   const finishDragMove = useCallback(
