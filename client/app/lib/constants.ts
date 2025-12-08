@@ -10,7 +10,8 @@ const DEFAULT_PORT = 3000;
  *  Comment/uncomment to pick which one to use.
  * =========================================================
  */
-const USE_MAIN_SERVER = false; // 👉 dev
+// const USE_MAIN_SERVER = false; // 👉 dev / local server
+const USE_MAIN_SERVER = true;  // 👉 production server
 
 /** 
  * =========================================================
