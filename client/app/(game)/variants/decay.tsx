@@ -56,9 +56,9 @@ const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"]
 // Major pieces that can have decay timers (excluding pawns and king)
 const MAJOR_PIECES = ["q", "r", "b", "n", "Q", "R", "B", "N"]
 
-// Decay timer constants
-const QUEEN_INITIAL_DECAY_TIME = 40000 // 40 seconds
-const MAJOR_PIECE_INITIAL_DECAY_TIME = 30000 // 30 seconds
+// Decay timer constants - MUST match server values
+const QUEEN_INITIAL_DECAY_TIME = 25000 // 25 seconds (matches server)
+const MAJOR_PIECE_INITIAL_DECAY_TIME = 20000 // 20 seconds (matches server)
 const DECAY_TIME_INCREMENT = 2000 // +2 seconds per additional move
 
 // Format decay timer in MM:SS format
@@ -292,6 +292,136 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
 
 
   // Utility: Remove decay timers and frozen state for captured pieces
+  // Sync decay state from server - CRITICAL for multi-device sync
+  // RULE: Only ONE decaying piece per player at any time (server is authoritative)
+  const syncDecayStateFromServer = useCallback(
+    (serverGameState: any) => {
+      if (!serverGameState) return
+
+      const serverQueenTimers = serverGameState.board?.queenDecayTimers || serverGameState.gameState?.queenDecayTimers
+      const serverMajorTimers = serverGameState.board?.majorPieceDecayTimers || serverGameState.gameState?.majorPieceDecayTimers
+      const serverFrozenPieces = serverGameState.board?.frozenPieces || serverGameState.gameState?.frozenPieces
+
+      // Sync decay timers from server - ONLY ONE timer per player
+      if (serverQueenTimers || serverMajorTimers) {
+        setDecayState((prev) => {
+          const newState = { white: {} as DecayState, black: {} as DecayState }
+          let hasChanges = false
+
+          ;(["white", "black"] as const).forEach((color) => {
+            const queenTimer = serverQueenTimers?.[color]
+            const majorTimer = serverMajorTimers?.[color]
+
+            // Determine which timer is the ACTIVE one (only ONE can be active)
+            // Priority: Queen timer (if active and not frozen) takes precedence
+            let activeTimer: { square: string; timeRemaining: number; moveCount: number } | null = null
+
+            if (queenTimer?.active && !queenTimer?.frozen && queenTimer?.square) {
+              activeTimer = {
+                square: queenTimer.square,
+                timeRemaining: queenTimer.timeRemaining,
+                moveCount: queenTimer.moveCount || 1,
+              }
+              console.log(`[SYNC] Server says ${color} queen at ${queenTimer.square} is the active decaying piece: ${queenTimer.timeRemaining}ms`)
+            } else if (majorTimer?.active && !majorTimer?.frozen && majorTimer?.square) {
+              activeTimer = {
+                square: majorTimer.square,
+                timeRemaining: majorTimer.timeRemaining,
+                moveCount: majorTimer.moveCount || 1,
+              }
+              console.log(`[SYNC] Server says ${color} major piece at ${majorTimer.square} is the active decaying piece: ${majorTimer.timeRemaining}ms`)
+            }
+
+            // Set ONLY the active timer (if any)
+            if (activeTimer) {
+              const existingTimer = prev[color][activeTimer.square]
+              const timeDiff = existingTimer ? Math.abs(existingTimer.timeLeft - activeTimer.timeRemaining) : Infinity
+              const serverIsLower = existingTimer ? activeTimer.timeRemaining < existingTimer.timeLeft : false
+              const shouldSync = !existingTimer || timeDiff > 1000 || existingTimer.isActive !== true || serverIsLower
+
+              if (shouldSync) {
+                newState[color][activeTimer.square] = {
+                  timeLeft: activeTimer.timeRemaining,
+                  isActive: true,
+                  moveCount: activeTimer.moveCount,
+                  pieceSquare: activeTimer.square,
+                }
+                hasChanges = true
+              } else {
+                // Keep existing timer if no significant change
+                newState[color][activeTimer.square] = existingTimer
+              }
+            }
+            // If no active timer, newState[color] remains empty (no timers)
+          })
+
+          return hasChanges ? newState : prev
+        })
+      }
+
+      // Sync frozen pieces from server - CRITICAL for multi-device sync
+      if (serverFrozenPieces) {
+        setFrozenPieces((prev) => {
+          const newFrozen = {
+            white: new Set<string>(),
+            black: new Set<string>(),
+          }
+
+          ;(["white", "black"] as const).forEach((color) => {
+            const serverFrozen = serverFrozenPieces[color] || []
+            if (Array.isArray(serverFrozen)) {
+              serverFrozen.forEach((square: string) => {
+                // Validate that the piece at this square is actually a queen or major piece
+                const piece = getPieceAt(square)
+                if (piece) {
+                  const pieceType = piece.toLowerCase()
+                  if (pieceType === 'q' || isMajorPiece(piece)) {
+                    newFrozen[color].add(square)
+                  }
+                }
+              })
+            }
+          })
+
+          // Also remove any timers for frozen pieces
+          setDecayState((prevDecay) => {
+            const newDecayState = { white: { ...prevDecay.white }, black: { ...prevDecay.black } }
+            let decayChanged = false
+            
+            ;(["white", "black"] as const).forEach((color) => {
+              // Remove timers for pieces that are now frozen according to server
+              newFrozen[color].forEach((square) => {
+                if (newDecayState[color][square]) {
+                  delete newDecayState[color][square]
+                  decayChanged = true
+                  console.log(`[SYNC] Removed timer for frozen piece ${color} at ${square}`)
+                }
+              })
+            })
+            
+            return decayChanged ? newDecayState : prevDecay
+          })
+
+          // Only update if different
+          const whiteChanged = newFrozen.white.size !== prev.white.size || 
+            Array.from(newFrozen.white).some(sq => !prev.white.has(sq)) ||
+            Array.from(prev.white).some(sq => !newFrozen.white.has(sq))
+          const blackChanged = newFrozen.black.size !== prev.black.size || 
+            Array.from(newFrozen.black).some(sq => !prev.black.has(sq)) ||
+            Array.from(prev.black).some(sq => !newFrozen.black.has(sq))
+
+          if (whiteChanged || blackChanged) {
+            console.log(`[SYNC] Synced frozen pieces - White: ${newFrozen.white.size} (was ${prev.white.size}), Black: ${newFrozen.black.size} (was ${prev.black.size})`)
+            return newFrozen
+          }
+
+          return prev
+        })
+      }
+    },
+    [getPieceAt, isMajorPiece],
+  )
+
   const cleanupCapturedPieces = useCallback(
     (newBoard: GameState["board"]) => {
       // Get all occupied squares from the new board
@@ -328,65 +458,88 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         return newState
       })
 
-      // Remove frozen state for squares that are no longer occupied
+      // Remove frozen state for squares that are no longer occupied OR contain invalid pieces (pawns, kings)
       setFrozenPieces((prev) => {
         const newFrozen = { white: new Set(prev.white), black: new Set(prev.black) }
         ;(["white", "black"] as const).forEach((color) => {
           for (const sq of newFrozen[color]) {
             if (!occupiedSquares.has(sq)) {
-              console.log(`[UNFREEZE] Removing frozen state from ${sq} (${color})`)
+              console.log(`[UNFREEZE] Removing frozen state from ${sq} (${color}) - square no longer occupied`)
               newFrozen[color].delete(sq)
+            } else {
+              // Validate that the piece at this square is actually a queen or major piece
+              const piece = getPieceAt(sq)
+              if (piece) {
+                const pieceType = piece.toLowerCase()
+                // Only queens and major pieces can be frozen - NOT pawns or kings
+                if (pieceType !== 'q' && !isMajorPiece(piece)) {
+                  console.log(`[UNFREEZE] Removing frozen state from ${sq} (${color}) - piece ${piece} is not a queen or major piece`)
+              newFrozen[color].delete(sq)
+                }
+              }
             }
           }
         })
         return newFrozen
       })
     },
-    [], // No dependencies needed as it only uses setters and local variables
+    [getPieceAt, isMajorPiece], // Dependencies for piece validation
   )
 
-  // FIXED: Start decay timer for a piece
+  // CORE RULE: Only ONE decaying piece per player at any time
+  // Get the current active decaying piece for a player
+  const getActiveDecayingPiece = useCallback(
+    (color: "white" | "black"): { square: string; timer: DecayTimer } | null => {
+      const colorState = decayState[color]
+      for (const [square, timer] of Object.entries(colorState)) {
+        if (timer && timer.isActive) {
+          return { square, timer }
+        }
+      }
+      return null
+    },
+    [decayState],
+  )
+
+  // Check if queen has frozen for a player
+  const hasQueenFrozen = useCallback(
+    (color: "white" | "black"): boolean => {
+      return Array.from(frozenPieces[color]).some((square) => {
+        const piece = getPieceAt(square)
+        return piece && isQueen(piece)
+      })
+    },
+    [frozenPieces, getPieceAt, isQueen],
+  )
+
+  // FIXED: Start decay timer for a piece - ENFORCES ONE DECAYING PIECE RULE
   const startDecayTimer = useCallback(
-    (square: string, piece: string) => {
+    (square: string, piece: string, isMovingSameDecayingPiece: boolean) => {
       const pieceColor = getPieceColor(piece)
       const isQueenPiece = isQueen(piece)
-      const isMajorPieceType = isMajorPiece(piece)
 
       setDecayState((prev) => {
         const newState = { ...prev }
-        const colorState = { ...newState[pieceColor] }
-        const existingTimer = colorState[square]
+        // CLEAR ALL existing timers for this player - only ONE decaying piece allowed
+        const colorState: DecayState = {}
 
-        // ENFORCE RULE: Only one major piece can have a timer at a time
-        if (isMajorPieceType && !isQueenPiece) {
-          // Check if any other major piece already has a timer for this color
-          const hasOtherMajorPieceTimer = Object.entries(colorState).some(([sq, timer]) => {
-            if (sq === square) return false // Don't count the current square
-            if (!timer || !timer.isActive) return false
-            
-            // Check if this timer belongs to a major piece (not queen)
-            const pieceAtSq = getPieceAt(sq)
-            return pieceAtSq && isMajorPiece(pieceAtSq) && !isQueen(pieceAtSq)
-          })
-
-          if (hasOtherMajorPieceTimer) {
-            console.log(`[DECAY] BLOCKED: Cannot start timer for ${piece} at ${square} - another major piece is already decaying for ${pieceColor}`)
-            return prev // Don't start a new timer
-          }
-        }
+        // Get the existing timer for this specific square (if moving the same decaying piece)
+        const existingTimer = prev[pieceColor][square]
 
         let decayTime: number
         let moveCount: number
 
-        if (existingTimer) {
-          // Increment by 2 seconds, cap appropriately
+        if (isMovingSameDecayingPiece && existingTimer) {
+          // Moving the SAME decaying piece - add +2 seconds (capped at initial time)
           const maxTime = isQueenPiece ? QUEEN_INITIAL_DECAY_TIME : MAJOR_PIECE_INITIAL_DECAY_TIME
           decayTime = Math.min(existingTimer.timeLeft + DECAY_TIME_INCREMENT, maxTime)
           moveCount = existingTimer.moveCount + 1
+          console.log(`[DECAY] Same decaying piece moved: ${piece} at ${square}, +2s -> ${decayTime}ms`)
         } else {
-          // Start with initial value
+          // Starting a NEW decay timer (first queen move or first major piece after queen frozen)
           decayTime = isQueenPiece ? QUEEN_INITIAL_DECAY_TIME : MAJOR_PIECE_INITIAL_DECAY_TIME
           moveCount = 1
+          console.log(`[DECAY] NEW decaying piece: ${piece} at ${square}, starting at ${decayTime}ms`)
         }
 
         colorState[square] = {
@@ -399,17 +552,27 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         newState[pieceColor] = colorState
         return newState
       })
-
-      console.log(
-        `[DECAY] Started decay timer for ${piece} at ${square}: ${isQueenPiece ? QUEEN_INITIAL_DECAY_TIME : MAJOR_PIECE_INITIAL_DECAY_TIME}ms`,
-      )
     },
-    [getPieceColor, isQueen, isMajorPiece, getPieceAt],
+    [getPieceColor, isQueen],
   )
 
-  // FIXED: Freeze a piece when decay timer expires
+  // FIXED: Freeze a piece when decay timer expires - only queens and major pieces
   const freezePiece = useCallback((square: string, color: "white" | "black") => {
-    console.log(`[DECAY] Freezing piece at ${square} for ${color}`)
+    // Validate that the piece at this square is actually a queen or major piece
+    const piece = getPieceAt(square)
+    if (!piece) {
+      console.warn(`[DECAY] Cannot freeze ${square} - no piece found`)
+      return
+    }
+    
+    const pieceType = piece.toLowerCase()
+    // Only queens and major pieces (rook, knight, bishop) can be frozen - NOT pawns or kings
+    if (pieceType !== 'q' && !isMajorPiece(piece)) {
+      console.warn(`[DECAY] Cannot freeze ${square} - piece ${piece} is not a queen or major piece`)
+      return
+    }
+    
+    console.log(`[DECAY] Freezing piece ${piece} at ${square} for ${color}`)
     setFrozenPieces((prev) => {
       const newFrozen = { ...prev }
       newFrozen[color] = new Set([...newFrozen[color], square])
@@ -424,7 +587,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       newState[color] = colorState
       return newState
     })
-  }, [])
+  }, [getPieceAt, isMajorPiece])
 
   // FIXED: Move piece in decay state when a move is made
   const movePieceInDecayState = useCallback(
@@ -474,88 +637,148 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
   )
 
   // FIXED: Handle decay logic for a move - CORE REQUIREMENT IMPLEMENTATION
+  // RULES:
+  // 1. Only ONE decaying piece per player at any time
+  // 2. Queen phase: First queen move starts 25s timer, queen is the decaying piece
+  // 3. While queen is decaying: moving queen adds +2s, moving ANY other piece does NOTHING
+  // 4. When queen timer hits 0: queen freezes, no more decaying piece
+  // 5. Major-piece phase: After queen frozen, first non-pawn move starts 20s timer
+  // 6. While major piece is decaying: moving THAT piece adds +2s, moving ANY other piece does NOTHING
+  // 7. When major piece timer hits 0: it freezes, no more decaying piece
+  // 8. Repeat 5-7 forever
   const handleDecayMove = useCallback(
     (from: string, to: string, piece?: string) => {
       const movedPiece = piece || getPieceAt(from)
       if (!movedPiece) return
 
       const pieceColor = getPieceColor(movedPiece)
+      const opponentColor = pieceColor === "white" ? "black" : "white"
+      const pieceType = movedPiece.toLowerCase()
+      const isPawn = pieceType === "p"
+      const isQueenPiece = isQueen(movedPiece)
 
-      // Move the piece in decay state first
-      movePieceInDecayState(from, to, movedPiece)
+      // Handle frozen pieces movement (separate from decay state)
+      setFrozenPieces((prev) => {
+        const newFrozen = { ...prev }
 
-      // Handle queen moves - CORE REQUIREMENT
-      if (isQueen(movedPiece)) {
-        // Mark that this color's queen has moved
-        setQueenMoved((prev) => ({ ...prev, [pieceColor]: true }))
+        // Remove opponent's frozen state from destination (if capturing)
+        if (newFrozen[opponentColor].has(to)) {
+          newFrozen[opponentColor] = new Set(newFrozen[opponentColor])
+          newFrozen[opponentColor].delete(to)
+        }
 
-        // Start or update decay timer for queen
-        startDecayTimer(to, movedPiece)
-        console.log(`[DECAY] Queen moved for ${pieceColor}, decay timer started/updated`)
-      }
-      // Handle major piece moves (only after queen has moved for this color)
-      else if (isMajorPiece(movedPiece)) {
-        // Check if queen has moved and is either frozen or not present on the board
-        const queenSquares = Array.from({ length: 8 * 8 }, (_, i) => {
-          const file = FILES[i % 8]
-          const rank = RANKS[Math.floor(i / 8)]
-          return `${file}${rank}`
-        })
+        // Transfer frozen state if the moving piece was frozen
+        if (newFrozen[pieceColor].has(from)) {
+          newFrozen[pieceColor] = new Set(newFrozen[pieceColor])
+          newFrozen[pieceColor].delete(from)
+          newFrozen[pieceColor].add(to)
+        }
 
-        const queenOnBoard = queenSquares.some((sq) => {
-          const piece = getPieceAt(sq)
-          return piece && isQueen(piece) && getPieceColor(piece) === pieceColor
-        })
+        return newFrozen
+      })
 
-        const hasQueenFrozen = Array.from(frozenPieces[pieceColor]).some((square) => {
-          const piece = getPieceAt(square)
-          return piece && isQueen(piece)
-        })
-
-        // Only start decay timer if queen has moved and is either frozen or not present
-        if (queenMoved[pieceColor] && (hasQueenFrozen || !queenOnBoard)) {
-          // ENFORCE RULE: Check if another major piece is already decaying
-          let canStartTimer = true
-          
-          setDecayState((prev) => {
-            const colorState = prev[pieceColor]
-            const hasOtherMajorPieceTimer = Object.entries(colorState).some(([sq, timer]) => {
-              if (sq === to) return false // Don't count the destination square
-              if (!timer || !timer.isActive) return false
-              
-              // Check if this timer belongs to a major piece (not queen)
-              const pieceAtSq = getPieceAt(sq)
-              return pieceAtSq && isMajorPiece(pieceAtSq) && !isQueen(pieceAtSq)
-            })
-            
-            if (hasOtherMajorPieceTimer) {
-              canStartTimer = false
-              console.log(`[DECAY] BLOCKED: Cannot start timer for ${movedPiece} at ${to} - another major piece is already decaying for ${pieceColor}`)
-            }
-            
-            return prev
-          })
-
-          if (canStartTimer) {
-            startDecayTimer(to, movedPiece)
-            console.log(`[DECAY] Major piece ${movedPiece} moved for ${pieceColor}, decay timer started`)
+      // Use setDecayState to access CURRENT state (avoids stale closure issues)
+      setDecayState((currentDecayState) => {
+        // Check for active decaying piece in CURRENT state
+        const colorState = currentDecayState[pieceColor]
+        let activeDecayingSquare: string | null = null
+        let activeDecayingTimer: DecayTimer | null = null
+        
+        for (const [square, timer] of Object.entries(colorState)) {
+          if (timer && timer.isActive) {
+            activeDecayingSquare = square
+            activeDecayingTimer = timer
+            break
           }
         }
-      }
+
+        // Check if queen is frozen (check frozenPieces - but we need current value)
+        // We'll use the closure value here since frozenPieces changes less frequently
+        const queenIsFrozen = Array.from(frozenPieces[pieceColor]).some((sq) => {
+          const p = getPieceAt(sq)
+          return p && isQueen(p)
+        })
+
+        // CASE 1: Player has NO active decaying piece
+        if (!activeDecayingSquare) {
+          // CASE 1A: Queen moved (and queen not yet frozen)
+          if (isQueenPiece && !queenIsFrozen) {
+            // Start queen phase - queen becomes the decaying piece
+            setQueenMoved((prev) => ({ ...prev, [pieceColor]: true }))
+            console.log(`[DECAY] QUEEN PHASE START: ${pieceColor}'s queen is now the decaying piece (25s)`)
+            
+            // Return new state with only the queen timer
+            return {
+              ...currentDecayState,
+              [pieceColor]: {
+                [to]: {
+                  timeLeft: QUEEN_INITIAL_DECAY_TIME,
+                  isActive: true,
+                  moveCount: 1,
+                  pieceSquare: to,
+                },
+              },
+            }
+          }
+
+          // CASE 1B: Queen is frozen, moved a non-pawn piece
+          if (queenIsFrozen && !isPawn) {
+            console.log(`[DECAY] MAJOR-PIECE PHASE START: ${pieceColor}'s ${movedPiece} is now the decaying piece (20s)`)
+            
+            // Return new state with only this major piece timer
+            return {
+              ...currentDecayState,
+              [pieceColor]: {
+                [to]: {
+                  timeLeft: MAJOR_PIECE_INITIAL_DECAY_TIME,
+                  isActive: true,
+                  moveCount: 1,
+                  pieceSquare: to,
+                },
+              },
+            }
+          }
+
+          // CASE 1C: Queen not moved yet, or moved a pawn after queen frozen
+          console.log(`[DECAY] No timer change: ${pieceColor} moved ${movedPiece}, conditions not met`)
+          return currentDecayState
+        }
+
+        // CASE 2: Player HAS an active decaying piece
+        // Check if we're moving THE SAME decaying piece (from the 'from' square OR already at 'to' after movePieceInDecayState)
+        const isMovingSameDecayingPiece = activeDecayingSquare === from || activeDecayingSquare === to
+
+        if (isMovingSameDecayingPiece && activeDecayingTimer) {
+          // Moving the decaying piece - add +2 seconds to its timer
+          const maxTime = isQueenPiece ? QUEEN_INITIAL_DECAY_TIME : MAJOR_PIECE_INITIAL_DECAY_TIME
+          const newTime = Math.min(activeDecayingTimer.timeLeft + DECAY_TIME_INCREMENT, maxTime)
+          console.log(`[DECAY] Decaying piece moved: ${movedPiece} ${from} -> ${to}, +2s -> ${newTime}ms`)
+          
+          // Move timer to new square with +2s
+          const newColorState: DecayState = {}
+          newColorState[to] = {
+            timeLeft: newTime,
+            isActive: true,
+            moveCount: activeDecayingTimer.moveCount + 1,
+            pieceSquare: to,
+          }
+          
+          return {
+            ...currentDecayState,
+            [pieceColor]: newColorState,
+          }
+        }
+
+        // CASE 3: Moving a DIFFERENT piece while there's an active decaying piece
+        // CRITICAL: Do NOT start a new timer, do NOT affect existing timer
+        console.log(`[DECAY] Moving different piece (${movedPiece}) while ${activeDecayingSquare} is decaying - NO TIMER CHANGE`)
+        return currentDecayState
+      })
     },
-    [
-      getPieceAt,
-      getPieceColor,
-      movePieceInDecayState,
-      isQueen,
-      isMajorPiece,
-      startDecayTimer,
-      frozenPieces,
-      queenMoved,
-    ],
+    [getPieceAt, getPieceColor, isQueen, frozenPieces],
   )
 
-  // FIXED: Decay timer countdown effect
+  // FIXED: Decay timer countdown effect - syncs with server periodically
   useEffect(() => {
     if (decayTimerRef.current) {
       clearInterval(decayTimerRef.current)
@@ -569,37 +792,59 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
 
     decayTimerRef.current = setInterval(() => {
       setDecayState((prev) => {
-        const newState = { ...prev }
+        const newState = { white: {} as DecayState, black: {} as DecayState }
         let hasChanges = false
 
-        // Handle both players' timers
-        ;["white", "black"].forEach((color) => {
-          const colorState = { ...newState[color as "white" | "black"] }
+        // Handle both players' timers - ENFORCE ONE TIMER PER PLAYER
+        ;(["white", "black"] as const).forEach((color) => {
+          const colorState = prev[color]
           const isPlayerTurn = gameState.board.activeColor === color
 
-          Object.keys(colorState).forEach((square) => {
-            const timer = colorState[square]
-            if (timer && timer.timeLeft > 0 && timer.isActive) {
-              // Only countdown during player's turn
-              if (isPlayerTurn) {
-                timer.timeLeft = Math.max(0, timer.timeLeft - 100)
+          // Find the SINGLE active timer for this player (should be only one)
+          let activeSquare: string | null = null
+          let activeTimer: DecayTimer | null = null
+
+          // Get all active timers and keep only ONE
+          Object.entries(colorState).forEach(([square, timer]) => {
+            if (timer && timer.isActive) {
+              if (!activeTimer || timer.timeLeft > activeTimer.timeLeft) {
+                // If multiple timers exist, keep the one with most time
+                if (activeSquare && activeTimer) {
+                  console.log(`[DECAY] CLEANUP: Removing extra timer at ${activeSquare} for ${color} (keeping ${square})`)
+                  hasChanges = true
+                }
+                activeSquare = square
+                activeTimer = { ...timer }
+              } else {
+                console.log(`[DECAY] CLEANUP: Removing extra timer at ${square} for ${color} (keeping ${activeSquare})`)
                 hasChanges = true
-
-                // Log timer updates for debugging
-                if (timer.timeLeft % 1000 === 0) {
-                  console.log(`[DECAY] ${color} ${square}: ${Math.floor(timer.timeLeft / 1000)}s remaining`)
-                }
-
-                // Freeze piece if timer expires
-                if (timer.timeLeft <= 0) {
-                  console.log(`[DECAY] Timer expired for piece at ${square}`)
-                  setTimeout(() => freezePiece(square, color as "white" | "black"), 0)
-                }
               }
             }
           })
 
-          newState[color as "white" | "black"] = colorState
+          // Process the single active timer
+          if (activeSquare && activeTimer) {
+            // Only countdown during player's turn
+            if (isPlayerTurn && activeTimer.timeLeft > 0) {
+              activeTimer.timeLeft = Math.max(0, activeTimer.timeLeft - 100)
+              hasChanges = true
+
+              // Log timer updates for debugging
+              if (activeTimer.timeLeft % 1000 === 0) {
+                console.log(`[DECAY] ${color} ${activeSquare}: ${Math.floor(activeTimer.timeLeft / 1000)}s remaining`)
+              }
+
+              // Freeze piece if timer expires
+              if (activeTimer.timeLeft <= 0) {
+                console.log(`[DECAY] Timer expired for piece at ${activeSquare}`)
+                setTimeout(() => freezePiece(activeSquare!, color), 0)
+              }
+            }
+
+            // Keep only this one timer
+            newState[color][activeSquare] = activeTimer
+          }
+          // If no active timer, newState[color] stays empty
         })
 
         return hasChanges ? newState : prev
@@ -613,6 +858,55 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       }
     }
   }, [gameState.status, gameState.board.activeColor, freezePiece])
+
+  // Periodic cleanup: Ensure only ONE decaying piece per player (not one queen + one major)
+  useEffect(() => {
+    if (gameState.status !== "active") return
+
+    const cleanupInterval = setInterval(() => {
+      setDecayState((prev) => {
+        const newState = { white: { ...prev.white }, black: { ...prev.black } }
+        let hasChanges = false
+
+        ;(["white", "black"] as const).forEach((color) => {
+          const colorState = newState[color]
+          const allTimers: Array<{ square: string; timer: any; isQueenPiece: boolean }> = []
+
+          // Collect all active timers
+          Object.keys(colorState).forEach((sq) => {
+            const timer = colorState[sq]
+            if (timer && timer.isActive) {
+              const piece = getPieceAt(sq)
+              if (piece) {
+                allTimers.push({ square: sq, timer, isQueenPiece: isQueen(piece) })
+              }
+            }
+          })
+
+          // CRITICAL: Keep only ONE timer total per player
+          // Priority: Queen timer first (queen phase), then major piece with most time
+          if (allTimers.length > 1) {
+            allTimers.sort((a, b) => {
+              if (a.isQueenPiece && !b.isQueenPiece) return -1
+              if (!a.isQueenPiece && b.isQueenPiece) return 1
+              return b.timer.timeLeft - a.timer.timeLeft
+            })
+
+            // Keep only the first timer
+            for (let i = 1; i < allTimers.length; i++) {
+              delete colorState[allTimers[i].square]
+              hasChanges = true
+              console.log(`[CLEANUP] Removed extra timer at ${allTimers[i].square} for ${color} - only ONE decaying piece allowed`)
+            }
+          }
+        })
+
+        return hasChanges ? newState : prev
+      })
+    }, 5000) // Check every 5 seconds
+
+    return () => clearInterval(cleanupInterval)
+  }, [gameState.status, getPieceAt, isQueen, isMajorPiece])
 
   // Function to handle game ending
   const handleGameEnd = useCallback(
@@ -760,6 +1054,9 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     setBoardFlipped(safePlayerColor === "black")
     setIsMyTurn(gameState.board.activeColor === safePlayerColor)
 
+    // Sync initial decay state from server
+    syncDecayStateFromServer(gameState)
+
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current)
@@ -771,7 +1068,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         clearTimeout(navigationTimeoutRef.current)
       }
     }
-  }, [gameState.userColor, userId, gameState.board.activeColor])
+  }, [gameState.userColor, userId, gameState.board.activeColor, syncDecayStateFromServer, gameState])
 
   // Update player state when game state changes
   useEffect(() => {
@@ -872,11 +1169,10 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
     (data: any) => {
       console.log("[MOVE] Move received:", data)
       if (data && data.gameState) {
-        // Handle decay logic for the moved piece
-        if (data.move && data.move.from && data.move.to) {
-          const movedPiece = getPieceAt(data.move.from)
-          handleDecayMove(data.move.from, data.move.to, movedPiece === null ? undefined : movedPiece)
-        }
+        // NOTE: We do NOT call handleDecayMove here for server-received moves.
+        // The server is the authoritative source for decay state.
+        // syncDecayStateFromServer (called below) will set the correct decay state.
+        // handleDecayMove is only for local optimistic updates.
 
         // Extract timer values from the response
         let newWhiteTime = safeTimerValue(gameState.timeControl.timers.white)
@@ -960,6 +1256,9 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
           moveCount: data.gameState.moveCount,
         }))
 
+        // Sync decay state from server (CRITICAL for multi-device sync)
+        syncDecayStateFromServer(data.gameState)
+
         // Clean up decay/frozen state for captured pieces
         cleanupCapturedPieces(data.gameState.board)
 
@@ -981,13 +1280,13 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
       }
     },
     [
-      handleDecayMove,
       getPieceAt,
       gameState.timeControl.timers,
       handleGameEnd,
       userId,
       playerColor,
       cleanupCapturedPieces,
+      syncDecayStateFromServer,
     ],
   )
 
@@ -1057,10 +1356,13 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
           },
         }))
 
+        // Sync decay state from server (CRITICAL for multi-device sync)
+        syncDecayStateFromServer(data.gameState)
+
         setIsMyTurn(data.gameState.board.activeColor === playerColor)
       }
     },
-    [handleGameEnd, playerColor],
+    [handleGameEnd, playerColor, syncDecayStateFromServer],
   )
 
   const handleTimerUpdate = useCallback(
@@ -1106,7 +1408,8 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         black: blackTime,
       })
 
-      setGameState((prevState) => ({
+      setGameState((prevState) => {
+        const updatedState = {
         ...prevState,
         timeControl: {
           ...prevState.timeControl,
@@ -1115,9 +1418,17 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
             black: blackTime,
           },
         },
-      }))
+        }
+        
+        // Sync decay state if timer update includes decay timer info
+        if (data.gameState || data.board) {
+          syncDecayStateFromServer(data.gameState || { board: data.board })
+        }
+        
+        return updatedState
+      })
     },
-    [handleGameEnd, gameState.board.activeColor, gameState.moves?.length, gameState.board?.moveHistory?.length],
+    [handleGameEnd, gameState.board.activeColor, gameState.moves?.length, gameState.board?.moveHistory?.length, syncDecayStateFromServer],
   )
 
   const handleGameEndEvent = useCallback(
@@ -1683,23 +1994,29 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         }
       }
 
-      // Frozen indicator overlay
-      if (pieceColor && frozenPieces[pieceColor].has(square)) {
+      // Frozen indicator overlay - only show for queens and major pieces
+      if (pieceColor && frozenPieces[pieceColor].has(square) && piece) {
+        const pieceType = piece.toLowerCase()
+        // Only show frozen indicator for queens and major pieces (not pawns or kings)
+        if (pieceType === 'q' || isMajorPiece(piece)) {
         const moveDotSize = squareSize * BOARD_THEME.moveDotScale
         overlays.push(createFrozenOverlay(moveDotSize))
+        }
       }
 
       return overlays
     },
-    [getPieceColor, decayState, frozenPieces, squareSize],
+    [getPieceColor, decayState, frozenPieces, squareSize, isMajorPiece],
   )
 
-  // Custom square styles for frozen pieces (opacity)
+  // Custom square styles for frozen pieces (opacity) - only for queens and major pieces
   const getCustomSquareStyles = useCallback(
     (square: string) => {
       const piece = getPieceAt(square)
       const pieceColor = piece ? getPieceColor(piece) : null
-      const isFrozen = pieceColor && frozenPieces[pieceColor].has(square)
+      // Only show frozen style for queens and major pieces (not pawns or kings)
+      const isFrozen = pieceColor && frozenPieces[pieceColor].has(square) && piece && 
+        (piece.toLowerCase() === 'q' || isMajorPiece(piece))
 
       return {
         piece: {
@@ -1707,7 +2024,7 @@ export default function DecayChessGame({ initialGameState, userId, onNavigateToM
         },
       }
     },
-    [getPieceAt, getPieceColor, frozenPieces],
+    [getPieceAt, getPieceColor, frozenPieces, isMajorPiece],
   )
 
   // Render game info (check, checkmate, stalemate, etc.)

@@ -60,10 +60,10 @@ export default function Choose() {
       subtitle: "Time Control: 3+2",
       description: "Move your queen to start a decay timer; later a major piece gets one too.",
       rulesItems: [
-        "On your first queen move, a 40s Decay Timer starts (runs only on your turns).",
+        "On your first queen move, a 25s Decay Timer starts (runs only on your turns).",
         "Each subsequent move of that same queen adds +2s to its remaining decay time.",
         "If the timer expires, the queen freezes and cannot be moved again.",
-        "After your queen freezes, the next major piece you move starts a 30s Decay Timer with the same behavior.",
+        "After your queen freezes, the next major piece you move starts a 20s Decay Timer with the same behavior.",
       ],
       color: "#2C2C2E"
     },

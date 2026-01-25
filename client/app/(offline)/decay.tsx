@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router"
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Dimensions, Modal, ScrollView, Text, TouchableOpacity, View, StyleSheet } from "react-native"
 import { Chess } from "chess.js"
-import type { Square } from "chess.js"
+import type { Square, Move } from "chess.js"
 import Layout from "../components/layout/Layout"
 import { variantStyles } from "@/app/lib/styles"
 import { getPieceComponent } from "../components/game/chessPieces"
@@ -14,9 +14,9 @@ type Color = "white" | "black"
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"]
 const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"]
 
-const QUEEN_INITIAL_DECAY_TIME = 40000
-const MAJOR_INITIAL_DECAY_TIME = 30000
-const DECAY_INCREMENT = 2000
+// Decay timer constants - Queen-only decay (simplified variant)
+const QUEEN_INITIAL_DECAY_TIME = 25000 // 25 seconds
+const DECAY_INCREMENT = 2000 // +2 seconds per move of the decaying piece
 
 export default function DecayOffline() {
   const router = useRouter()
@@ -41,12 +41,19 @@ export default function DecayOffline() {
   const [resultMessage, setResultMessage] = useState<string>("")
   const [winner, setWinner] = useState<Color | null>(null)
 
-  // Decay state
-  const [queenDecay, setQueenDecay] = useState<{ white: { active: boolean; frozen: boolean; timeRemaining: number; square?: string; count: number }, black: { active: boolean; frozen: boolean; timeRemaining: number; square?: string; count: number } }>({
+  // Decay state - Queen-only decay (simplified variant)
+  interface DecayTimer {
+    active: boolean
+    frozen: boolean
+    timeRemaining: number
+    square?: string
+    count: number
+  }
+  
+  const [queenDecay, setQueenDecay] = useState<{ white: DecayTimer; black: DecayTimer }>({
     white: { active: false, frozen: false, timeRemaining: 0, count: 0 },
     black: { active: false, frozen: false, timeRemaining: 0, count: 0 },
   })
-  const [majorDecay, setMajorDecay] = useState<{ active: boolean; frozen: boolean; timeRemaining: number; square?: string; pieceType?: string; color?: Color; count: number }>({ active: false, frozen: false, timeRemaining: 0, count: 0 })
   const [frozenSquares, setFrozenSquares] = useState<{ white: string[]; black: string[] }>({ white: [], black: [] })
 
   const turnStartRef = useRef<number>(Date.now())
@@ -72,7 +79,7 @@ export default function DecayOffline() {
       const delta = now - lastTickRef.current
       lastTickRef.current = now
 
-      // main timers
+      // main timers - only deduct from active player
       setTimers((prev) => {
         const next = { ...prev }
         const c = activeColor
@@ -81,7 +88,7 @@ export default function DecayOffline() {
         return next
       })
 
-      // decay timers counting for current player
+      // Queen decay timer counts down ONLY during the active player's turn
       setQueenDecay((prev) => {
         const next = { ...prev }
         const q = next[activeColor]
@@ -90,20 +97,19 @@ export default function DecayOffline() {
           if (q.timeRemaining <= 0) {
             q.frozen = true
             q.active = false
-            if (q.square) setFrozenSquares((fs) => ({ ...fs, [activeColor]: [...fs[activeColor], q.square!] }))
-          }
-        }
-        return next
-      })
-
-      setMajorDecay((prev) => {
-        const next = { ...prev }
-        if (next.active && !next.frozen && next.color === activeColor) {
-          next.timeRemaining = Math.max(0, next.timeRemaining - delta)
-          if (next.timeRemaining <= 0) {
-            next.frozen = true
-            next.active = false
-            if (next.square && next.color) setFrozenSquares((fs) => ({ ...fs, [next.color!]: [...fs[next.color!], next.square!] }))
+            // Only add to frozen squares if there's actually a queen at that square
+            if (q.square) {
+              const pieceAtSquare = getPieceAt(q.square)
+              if (pieceAtSquare && pieceAtSquare.toLowerCase() === 'q') {
+                setFrozenSquares((fs) => {
+                  const updated = { ...fs }
+                  if (!updated[activeColor].includes(q.square!)) {
+                    updated[activeColor] = [...updated[activeColor], q.square!]
+                  }
+                  return updated
+                })
+              }
+            }
           }
         }
         return next
@@ -112,6 +118,42 @@ export default function DecayOffline() {
 
     return () => intervalRef.current && clearInterval(intervalRef.current)
   }, [activeColor, gameEnded])
+
+  // Cleanup frozen squares: remove invalid entries (only queens can be frozen)
+  useEffect(() => {
+    const cleanupFrozenSquares = () => {
+      setFrozenSquares((fs) => {
+        const updated = { ...fs }
+        let changed = false
+        
+        ;(['white', 'black'] as Color[]).forEach((color) => {
+          const validSquares = updated[color].filter((square) => {
+            const piece = getPieceAt(square)
+            if (!piece) {
+              changed = true
+              return false // Piece no longer exists
+            }
+            const pieceType = piece.toLowerCase()
+            // Only queens can be frozen in this simplified variant
+            if (pieceType === 'q') {
+              return true
+            }
+            // All other pieces cannot be frozen - remove them
+            changed = true
+            return false
+          })
+          if (validSquares.length !== updated[color].length) {
+            updated[color] = validSquares
+            changed = true
+          }
+        })
+        
+        return changed ? updated : fs
+      })
+    }
+    
+    cleanupFrozenSquares()
+  }, [fen]) // Re-validate whenever board state changes
 
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
@@ -145,8 +187,6 @@ export default function DecayOffline() {
   }
 
   const isPieceOwnedBy = (piece: string, color: Color) => color === 'white' ? piece === piece.toUpperCase() : piece === piece.toLowerCase()
-
-  const isMajor = (t: string) => ['r','n','b'].includes(t.toLowerCase())
 
   const getPieceColor = (p: string): Color => (p === p.toUpperCase() ? 'white' : 'black')
 
@@ -200,7 +240,7 @@ export default function DecayOffline() {
 
     const newGame = new Chess(game.fen())
     const targetPiece = newGame.get(m.to as Square)
-    let result
+    let result: Move | null = null
     try { result = newGame.move(m) } catch { Alert.alert('Invalid move', 'This move is not legal.'); return }
     if (!result) { Alert.alert('Invalid move', 'This move is not legal.'); return }
 
@@ -208,35 +248,22 @@ export default function DecayOffline() {
     if (targetPiece) {
       const capType = targetPiece.type
       setCaptured((prev) => ({ ...prev, [activeColor]: [...prev[activeColor], capType] }))
+      
+      // Remove captured piece from frozen squares if it was frozen
+      const capturedColor = activeColor === 'white' ? 'black' : 'white'
+      setFrozenSquares((fs) => {
+        const updated = { ...fs }
+        const index = updated[capturedColor].indexOf(m.to)
+        if (index !== -1) {
+          updated[capturedColor] = updated[capturedColor].filter((sq) => sq !== m.to)
+        }
+        return updated
+      })
     }
 
-    // Handle decay triggers
-    const movedFrom = m.from
+    // Handle decay triggers - Queen-only decay
     const piece = result.piece as string
     const movedTo = m.to
-    setMajorDecay((prev) => {
-      const next = { ...prev }
-      // if queen frozen and no current major active/frozen, start on this major move
-      const q = queenDecay[activeColor]
-      if (isMajor(piece) && q.frozen) {
-        if (!next.active && !next.frozen) {
-          next.active = true; next.timeRemaining = MAJOR_INITIAL_DECAY_TIME; next.square = movedTo; next.pieceType = piece; next.count = 1; next.color = activeColor
-        } else if (next.active && !next.frozen) {
-          // If same piece moves, increment timer; else ignore (only one major decays at a time)
-          if (next.square === movedFrom && next.pieceType === piece) {
-            next.count += 1; next.timeRemaining = Math.min(MAJOR_INITIAL_DECAY_TIME, next.timeRemaining + DECAY_INCREMENT); next.square = movedTo
-          }
-        }
-      } else if (next.active && !next.frozen) {
-        // If decaying piece no longer exists at its square (captured or moved illegally), clear
-        const checkGame = new Chess(newGame.fen())
-        const p = checkGame.get(next.square! as Square)
-        if (!p || p.type !== (next.pieceType as any) || (next.color === 'white' ? p.color !== 'w' : p.color !== 'b')) {
-          next.active = false; next.timeRemaining = 0; next.square = undefined; next.pieceType = undefined; next.count = 0; next.color = undefined
-        }
-      }
-      return next
-    })
 
     // Sync queen decay state to board (handles queen capture and square updates)
     setQueenDecay((prev) => {
@@ -304,18 +331,18 @@ export default function DecayOffline() {
     const piece = getPieceAt(square)
     const lastMove = moveHistory[moveHistory.length - 1]
     const isLastMove = lastMove && (lastMove.from === square || lastMove.to === square)
-    const frozen = frozenSquares[activeColor].includes(square) || frozenSquares[activeColor === 'white' ? 'black' : 'white'].includes(square)
+    // Only show frozen indicator if the piece is actually a queen (only queens can freeze)
+    const isFrozenSquare = frozenSquares[activeColor].includes(square) || frozenSquares[activeColor === 'white' ? 'black' : 'white'].includes(square)
+    const frozen = isFrozenSquare && piece && piece.toLowerCase() === 'q'
 
-    // Decay badge (matches 1v1 style: small circle above piece)
+    // Queen decay badge (small circle above piece showing remaining time)
     let decayBadge: React.ReactNode = null
     if (piece) {
-      const color = getPieceColor(piece)
-      const queen = queenDecay[color]
-      const major = majorDecay
-      const showQueen = queen.active && queen.square === square
-      const showMajor = major.active && major.color === color && major.square === square
-      if (showQueen || showMajor) {
-        const time = Math.max(0, Math.ceil((showQueen ? queen.timeRemaining : major.timeRemaining) / 1000))
+      const pieceColor = getPieceColor(piece)
+      const queen = queenDecay[pieceColor]
+      const showQueen = queen.active && !queen.frozen && queen.square === square
+      if (showQueen) {
+        const time = Math.max(0, Math.ceil(queen.timeRemaining / 1000))
         decayBadge = (
           <View
             style={{
@@ -401,15 +428,10 @@ export default function DecayOffline() {
     const q = queenDecay[color]
     return (
       <Text style={{ color: q.frozen ? '#ef4444' : q.active ? '#f59e0b' : '#a1a1aa' }}>
-        Q {q.frozen ? 'Frozen' : q.active ? `${Math.ceil(q.timeRemaining/1000)}s` : '—'}
+        👑 Queen {q.frozen ? 'Frozen' : q.active ? `${Math.ceil(q.timeRemaining/1000)}s` : '—'}
       </Text>
     )
   }
-  const majorBadge = () => (
-    <Text style={{ color: majorDecay.frozen ? '#ef4444' : majorDecay.active ? '#f59e0b' : '#a1a1aa' }}>
-      Major {majorDecay.frozen ? 'Frozen' : majorDecay.active ? `${Math.ceil(majorDecay.timeRemaining/1000)}s` : '—'}
-    </Text>
-  )
 
   return (
     <Layout
@@ -431,7 +453,7 @@ export default function DecayOffline() {
                 <View style={variantStyles.playerAvatar}><Text style={variantStyles.playerAvatarText}>B</Text></View>
                 <View style={variantStyles.playerNameContainer}><Text style={[variantStyles.playerName]} numberOfLines={1}>Player 2</Text></View>
               </View>
-              <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>{queenBadge('black')}{majorBadge()}</View>
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>{queenBadge('black')}</View>
             </View>
             <View style={[variantStyles.timerContainer, activeColor === 'black' && variantStyles.activeTimerContainer]}>
               <Text style={[variantStyles.timerText, activeColor === 'black' && variantStyles.activeTimerText]}>{formatTime(timers.black)}</Text>
@@ -449,7 +471,7 @@ export default function DecayOffline() {
                 <View style={variantStyles.playerAvatar}><Text style={variantStyles.playerAvatarText}>W</Text></View>
                 <View style={variantStyles.playerNameContainer}><Text style={[variantStyles.playerName]} numberOfLines={1}>Player 1</Text></View>
               </View>
-              <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>{queenBadge('white')}{majorBadge()}</View>
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>{queenBadge('white')}</View>
             </View>
             <View style={[variantStyles.timerContainer, activeColor === 'white' && variantStyles.activeTimerContainer]}>
               <Text style={[variantStyles.timerText, activeColor === 'white' && variantStyles.activeTimerText]}>{formatTime(timers.white)}</Text>

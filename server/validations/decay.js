@@ -321,16 +321,22 @@ function handleDecayMove(state, move, playerColor, currentTimestamp) {
     const queenTimer = state.queenDecayTimers[color]
     const majorTimer = state.majorPieceDecayTimers[color];
     
-    // CORE REQUIREMENT: Only allow one major piece to decay at a time after queen is frozen
-    if (queenTimer.frozen && !majorTimer.active && !majorTimer.frozen) {
-      // Start decay timer for the FIRST major piece moved after queen freezes
+    // CORE REQUIREMENT: Only allow one ACTIVE major piece to decay at a time after queen is frozen
+    // When a major piece timer expires (frozen), the NEXT major piece moved starts a NEW timer
+    
+    // Case 1: No active timer - can start a new one if queen is frozen
+    if (queenTimer.frozen && !majorTimer.active) {
+      // Start decay timer for the major piece - either first one or after previous one froze
       majorTimer.active = true;
+      majorTimer.frozen = false; // Reset frozen flag to allow this new timer
       majorTimer.timeRemaining = MAJOR_PIECE_INITIAL_DECAY_TIME;
       majorTimer.moveCount = 1;
       majorTimer.pieceType = pieceType;
       majorTimer.square = move.to;
-      console.log(`${color} ${pieceType} decay timer started: 20 seconds (first major piece after queen frozen)`);
-    } else if (majorTimer.active && !majorTimer.frozen) {
+      console.log(`${color} ${pieceType} decay timer started: 20 seconds (queen frozen, starting new major decay)`);
+    } 
+    // Case 2: There's an active timer
+    else if (majorTimer.active && !majorTimer.frozen) {
       // Check if the decaying piece still exists on the board at its current square
       const decayingPieceExists = game.get(majorTimer.square);
       const isCorrectPiece = decayingPieceExists && 
@@ -340,13 +346,14 @@ function handleDecayMove(state, move, playerColor, currentTimestamp) {
       if (!isCorrectPiece) {
         // Decaying piece was captured or no longer exists, clear the timer
         majorTimer.active = false;
+        majorTimer.frozen = false;
         majorTimer.timeRemaining = 0;
         majorTimer.moveCount = 0;
         majorTimer.pieceType = null;
         majorTimer.square = null;
         console.log(`${color} major piece decay timer cleared (piece no longer exists)`);
         
-        // Now check if THIS piece can start decaying
+        // Now start a new timer for THIS piece
         if (queenTimer.frozen) {
           majorTimer.active = true;
           majorTimer.timeRemaining = MAJOR_PIECE_INITIAL_DECAY_TIME;
@@ -356,19 +363,27 @@ function handleDecayMove(state, move, playerColor, currentTimestamp) {
           console.log(`${color} ${pieceType} decay timer started: 20 seconds (replacing cleared timer)`);
         }
       } else if (majorTimer.square === move.from && majorTimer.pieceType === pieceType) {
-        // This is the currently decaying piece moving
+        // This is the currently decaying piece moving - add +2 seconds
         majorTimer.moveCount++;
         majorTimer.timeRemaining = Math.min(majorTimer.timeRemaining + DECAY_TIME_INCREMENT, MAJOR_PIECE_INITIAL_DECAY_TIME);
         majorTimer.square = move.to;
-        majorTimer.timeRemaining = Math.min(majorTimer.timeRemaining, MAJOR_PIECE_INITIAL_DECAY_TIME);
         console.log(`${color} ${pieceType} move #${majorTimer.moveCount}: +2 seconds added, total: ${majorTimer.timeRemaining}ms`);
       } else {
-        // Another major piece is trying to move while one is already decaying - BLOCK THIS
-        console.log(`${color} ${pieceType} at ${move.from} BLOCKED - ${majorTimer.pieceType} at ${majorTimer.square} is already decaying`);
-        // Do nothing - only one major piece can decay at a time
+        // Another major piece is trying to move while one is already actively decaying - DO NOTHING
+        console.log(`${color} ${pieceType} at ${move.from} - ${majorTimer.pieceType} at ${majorTimer.square} is already decaying (no timer change)`);
       }
     }
-    // If majorTimer is frozen, do NOT start a new timer for any other major piece
+    // Case 3: majorTimer.frozen is true but active is false - this shouldn't happen normally
+    // but if it does, we should allow a new timer
+    else if (majorTimer.frozen && !majorTimer.active && queenTimer.frozen) {
+      majorTimer.active = true;
+      majorTimer.frozen = false;
+      majorTimer.timeRemaining = MAJOR_PIECE_INITIAL_DECAY_TIME;
+      majorTimer.moveCount = 1;
+      majorTimer.pieceType = pieceType;
+      majorTimer.square = move.to;
+      console.log(`${color} ${pieceType} decay timer started: 20 seconds (after previous major piece frozen)`);
+    }
   }
 }
 
@@ -982,3 +997,4 @@ export function updateRepetitionMap(state, gameInstance) {
     console.error("Error updating repetition map:", error)
   }
 }
+

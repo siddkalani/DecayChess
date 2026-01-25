@@ -97,7 +97,7 @@ export default function OfflineMenu() {
                 onPress={() => router.push({ pathname: '/(offline)/decay', params: { baseTime: String(180000), increment: String(0) } } as any)}
               >
                 <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 4 }}>Decay</Text>
-                <Text style={{ color: '#b0b3b8' }}>3:00 each, no increment; queen then major piece decay timers</Text>
+                <Text style={{ color: '#b0b3b8' }}>3:00 each, no increment; queen decay timer (freezes when expired)</Text>
               </TouchableOpacity>
             </View>
           </View>
