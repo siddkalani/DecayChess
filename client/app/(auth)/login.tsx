@@ -1,16 +1,26 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { loginUser } from "../lib/APIservice/service";
 import Skeleton from "../components/ui/Skeleton";
+
+// Email validation regex
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const router = useRouter();
+
+  // Clear error when user starts typing
+  const handleInputChange = (setter: (val: string) => void) => (value: string) => {
+    setErrorMessage(null);
+    setter(value);
+  };
 
   // If already authenticated, skip login screen entirely
   React.useEffect(() => {
@@ -22,36 +32,67 @@ export default function Login() {
           AsyncStorage.getItem('user'),
         ]);
         if (mounted && token && user) {
+          console.log('[Login] ✅ User already authenticated, redirecting...');
           router.replace('/(main)/choose');
         }
-      } catch {}
+      } catch (err) {
+        console.error('[Login] ⚠️ Error checking auth state:', err);
+      }
     })();
     return () => {
       mounted = false;
     };
   }, [router]);
 
+  const validateInputs = (): string | null => {
+    if (!email.trim()) {
+      return 'Please enter your email';
+    }
+    if (!EMAIL_REGEX.test(email.trim())) {
+      return 'Please enter a valid email address';
+    }
+    if (!password) {
+      return 'Please enter your password';
+    }
+    return null;
+  };
+
   const handleLogin = async () => {
     if (isLoading) {
       return;
     }
 
+    // Clear previous errors
+    setErrorMessage(null);
+    
+    // Validate inputs
+    const validationError = validateInputs();
+    if (validationError) {
+      setErrorMessage(validationError);
+      return;
+    }
+
     setIsLoading(true);
+    console.log('[Login] 🚀 Attempting login for:', email.trim());
     let shouldResetLoading = true;
+    
     try {
-      const result = await loginUser(email, password);
+      const result = await loginUser(email.trim().toLowerCase(), password);
       
       if (result.success) {
+        console.log('[Login] ✅ Login successful');
         const data = result.data;
         await AsyncStorage.setItem('token', data.token);
         await AsyncStorage.setItem('user', JSON.stringify(data.user));
         shouldResetLoading = false;
         router.replace('/(main)/choose');
       } else {
-        alert(result.error);
+        console.log('[Login] ❌ Login failed:', result.error);
+        setErrorMessage(result.error || 'Login failed. Please try again.');
       }
     } catch (err) {
-      alert('An unexpected error occurred. Please try again.');
+      console.error('[Login] 💥 Unexpected error:', err);
+      setErrorMessage('An unexpected error occurred. Please try again.');
     } finally {
       if (shouldResetLoading) {
         setIsLoading(false);
@@ -89,11 +130,19 @@ export default function Login() {
           />
           <Text style={{ color: "#fff", fontSize: 28, fontWeight: "bold", marginBottom: 8 }}>Welcome Back</Text>
           <Text style={{ color: "#b0b3b8", fontSize: 16, marginBottom: 24 }}>Log in to continue your chess journey!</Text>
+          
+          {/* Error Message Display */}
+          {errorMessage && (
+            <View style={{ width: "100%", backgroundColor: "#dc262620", borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: "#dc2626" }}>
+              <Text style={{ color: "#ef4444", fontSize: 14, textAlign: "center" }}>⚠️ {errorMessage}</Text>
+            </View>
+          )}
+          
           <TextInput
             placeholder="Email"
             placeholderTextColor="#b0b3b8"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={handleInputChange(setEmail)}
             style={{ width: "100%", backgroundColor: "#2C2F33", color: "#fff", borderWidth: 0, marginBottom: 12, padding: 14, borderRadius: 10, fontSize: 16 }}
             autoCapitalize="none"
             keyboardType="email-address"
@@ -103,7 +152,7 @@ export default function Login() {
             placeholder="Password"
             placeholderTextColor="#b0b3b8"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={handleInputChange(setPassword)}
             style={{ width: "100%", backgroundColor: "#2C2F33", color: "#fff", borderWidth: 0, marginBottom: 20, padding: 14, borderRadius: 10, fontSize: 16 }}
             secureTextEntry
             editable={!isLoading}

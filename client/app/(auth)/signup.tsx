@@ -1,9 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Image, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { registerUser } from "../lib/APIservice/service";
+
+// Email validation regex
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function Signup() {
   const router = useRouter();
@@ -11,25 +14,75 @@ export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Clear error when user starts typing
+  const handleInputChange = (setter: (val: string) => void) => (value: string) => {
+    setErrorMessage(null);
+    setter(value);
+  };
+
+  const validateInputs = (): string | null => {
+    if (!name.trim()) {
+      return 'Please enter your name';
+    }
+    if (name.trim().length < 2) {
+      return 'Name must be at least 2 characters';
+    }
+    if (!email.trim()) {
+      return 'Please enter your email';
+    }
+    if (!EMAIL_REGEX.test(email.trim())) {
+      return 'Please enter a valid email address';
+    }
+    if (!password) {
+      return 'Please enter a password';
+    }
+    if (password.length < 6) {
+      return 'Password must be at least 6 characters';
+    }
+    if (!confirmPassword) {
+      return 'Please confirm your password';
+    }
+    if (password !== confirmPassword) {
+      return 'Passwords do not match';
+    }
+    return null;
+  };
 
   const handleSignup = async () => {
-    if (password !== confirmPassword) {
-      alert("Passwords do not match");
+    // Clear previous errors
+    setErrorMessage(null);
+    
+    // Validate inputs
+    const validationError = validateInputs();
+    if (validationError) {
+      setErrorMessage(validationError);
       return;
     }
+
+    setIsLoading(true);
+    console.log('[Signup] 🚀 Attempting registration for:', email.trim());
+    
     try {
-      const result = await registerUser(name, email, password);
+      const result = await registerUser(name.trim(), email.trim().toLowerCase(), password);
       
       if (result.success) {
+        console.log('[Signup] ✅ Registration successful');
         const data = result.data;
         await AsyncStorage.setItem('token', data.token);
         await AsyncStorage.setItem('user', JSON.stringify(data.user));
         router.replace('/(main)/choose');
       } else {
-        alert(result.error);
+        console.log('[Signup] ❌ Registration failed:', result.error);
+        setErrorMessage(result.error || 'Registration failed. Please try again.');
       }
     } catch (err) {
-      alert('An unexpected error occurred. Please try again.');
+      console.error('[Signup] 💥 Unexpected error:', err);
+      setErrorMessage('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -63,43 +116,60 @@ export default function Signup() {
           />
           <Text style={{ color: "#fff", fontSize: 28, fontWeight: "bold", marginBottom: 8 }}>Create Account</Text>
           <Text style={{ color: "#b0b3b8", fontSize: 16, marginBottom: 24 }}>Join the game and challenge the world!</Text>
+          
+          {/* Error Message Display */}
+          {errorMessage && (
+            <View style={{ width: "100%", backgroundColor: "#dc262620", borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: "#dc2626" }}>
+              <Text style={{ color: "#ef4444", fontSize: 14, textAlign: "center" }}>⚠️ {errorMessage}</Text>
+            </View>
+          )}
+          
           <TextInput
             placeholder="Name"
             placeholderTextColor="#b0b3b8"
             value={name}
-            onChangeText={setName}
+            onChangeText={handleInputChange(setName)}
             style={{ width: "100%", backgroundColor: "#2C2F33", color: "#fff", borderWidth: 0, marginBottom: 12, padding: 14, borderRadius: 10, fontSize: 16 }}
+            editable={!isLoading}
           />
           <TextInput
             placeholder="Email"
             placeholderTextColor="#b0b3b8"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={handleInputChange(setEmail)}
             style={{ width: "100%", backgroundColor: "#2C2F33", color: "#fff", borderWidth: 0, marginBottom: 12, padding: 14, borderRadius: 10, fontSize: 16 }}
             autoCapitalize="none"
             keyboardType="email-address"
+            editable={!isLoading}
           />
           <TextInput
             placeholder="Password"
             placeholderTextColor="#b0b3b8"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={handleInputChange(setPassword)}
             style={{ width: "100%", backgroundColor: "#2C2F33", color: "#fff", borderWidth: 0, marginBottom: 12, padding: 14, borderRadius: 10, fontSize: 16 }}
             secureTextEntry
+            editable={!isLoading}
           />
           <TextInput
             placeholder="Confirm Password"
             placeholderTextColor="#b0b3b8"
             value={confirmPassword}
-            onChangeText={setConfirmPassword}
+            onChangeText={handleInputChange(setConfirmPassword)}
             style={{ width: "100%", backgroundColor: "#2C2F33", color: "#fff", borderWidth: 0, marginBottom: 20, padding: 14, borderRadius: 10, fontSize: 16 }}
             secureTextEntry
+            editable={!isLoading}
           />
           <TouchableOpacity
             onPress={handleSignup}
-            style={{ backgroundColor: "#00A862", paddingVertical: 16, borderRadius: 30, width: "100%", alignItems: "center", marginBottom: 16 }}
+            style={{ backgroundColor: "#00A862", paddingVertical: 16, borderRadius: 30, width: "100%", alignItems: "center", marginBottom: 16, opacity: isLoading ? 0.6 : 1 }}
+            disabled={isLoading}
           >
-            <Text style={{ color: "#fff", fontSize: 18, fontWeight: "bold" }}>Sign Up & Play</Text>
+            {isLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={{ color: "#fff", fontSize: 18, fontWeight: "bold" }}>Sign Up & Play</Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push("/(auth)/login")} style={{ marginTop: 8 }}>
             <Text style={{ color: "#b0b3b8", fontSize: 16 }}>Already have an account? <Text style={{ color: "#00A862", fontWeight: "bold" }}>Login</Text></Text>

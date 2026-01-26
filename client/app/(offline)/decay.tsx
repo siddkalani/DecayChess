@@ -157,6 +157,51 @@ export default function DecayOffline() {
 
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
+  // Helper function to get legal moves while considering frozen pieces
+  // Frozen pieces should not control squares or affect opponent's legal moves
+  const getLegalMovesForSquare = (square: string): string[] => {
+    // Get all frozen squares from both colors
+    const allFrozenSquares = [...frozenSquares.white, ...frozenSquares.black]
+    
+    if (allFrozenSquares.length === 0) {
+      // No frozen pieces, use normal move generation
+      try {
+        const moves = game.moves({ square: square as any, verbose: true }) as any[]
+        return moves.map((m) => m.to)
+      } catch {
+        return []
+      }
+    }
+
+    // Create a temporary game state without frozen pieces
+    const tempGame = new Chess(game.fen())
+    
+    // Remove all frozen pieces from the board temporarily
+    const removedPieces: { square: string; piece: any }[] = []
+    allFrozenSquares.forEach((frozenSquare) => {
+      try {
+        const piece = tempGame.get(frozenSquare as Square)
+        if (piece) {
+          removedPieces.push({ square: frozenSquare, piece })
+          tempGame.remove(frozenSquare as Square)
+        }
+      } catch {
+        // Square doesn't exist or piece already removed
+      }
+    })
+
+    // Calculate legal moves without frozen pieces affecting the board
+    let legalMoves: string[] = []
+    try {
+      const moves = tempGame.moves({ square: square as any, verbose: true }) as any[]
+      legalMoves = moves.map((m) => m.to)
+    } catch {
+      legalMoves = []
+    }
+
+    return legalMoves
+  }
+
   const endGame = (result: string, winnerColor: Color | null, reason: string) => {
     setGameEnded(true)
     setWinner(winnerColor)
@@ -227,7 +272,8 @@ export default function DecayOffline() {
       // cannot select frozen
       if (frozenSquares[activeColor].includes(square)) { Alert.alert('Frozen', 'This piece is frozen by decay.'); return }
       setSelectedSquare(square)
-      try { const moves = game.moves({ square: square as any, verbose: true }) as any[]; setPossibleMoves(moves.map((m) => m.to)) } catch { setPossibleMoves([]) }
+      const legalMoves = getLegalMovesForSquare(square)
+      setPossibleMoves(legalMoves)
     } else { setSelectedSquare(null); setPossibleMoves([]) }
   }
 
@@ -238,11 +284,37 @@ export default function DecayOffline() {
 
     // Offline simple mode: do not adjust time on move; timers tick only during turn via interval
 
+    // Create game state without frozen pieces for move validation
+    const allFrozenSquares = [...frozenSquares.white, ...frozenSquares.black]
     const newGame = new Chess(game.fen())
+    
+    // Remove frozen pieces temporarily for move validation
+    const removedPieces: { square: string; piece: any }[] = []
+    allFrozenSquares.forEach((frozenSquare) => {
+      try {
+        const piece = newGame.get(frozenSquare as Square)
+        if (piece) {
+          removedPieces.push({ square: frozenSquare, piece })
+          newGame.remove(frozenSquare as Square)
+        }
+      } catch {
+        // Ignore errors
+      }
+    })
+
     const targetPiece = newGame.get(m.to as Square)
     let result: Move | null = null
     try { result = newGame.move(m) } catch { Alert.alert('Invalid move', 'This move is not legal.'); return }
     if (!result) { Alert.alert('Invalid move', 'This move is not legal.'); return }
+
+    // Restore frozen pieces to the new game state
+    removedPieces.forEach(({ square, piece }) => {
+      try {
+        newGame.put(piece, square as Square)
+      } catch {
+        // Ignore errors
+      }
+    })
 
     // Capture track
     if (targetPiece) {
@@ -264,22 +336,31 @@ export default function DecayOffline() {
     // Handle decay triggers - Queen-only decay
     const piece = result.piece as string
     const movedTo = m.to
+    // Only treat it as a queen move if the piece that moved was already a queen (not a pawn promoting)
+    // Timer should only start when a queen that already exists on the board moves
+    const isQueenMove = piece.toLowerCase() === 'q'
 
     // Sync queen decay state to board (handles queen capture and square updates)
     setQueenDecay((prev) => {
       const next = { ...prev }
-      // If the moving piece is a queen, update its timer first
-      if (piece.toLowerCase() === 'q') {
+      // If the moving piece is an actual queen (not pawn promotion), update its timer
+      if (isQueenMove) {
         const q = next[activeColor]
         if (!q.active && !q.frozen) {
+          // First queen move - start the timer
           next[activeColor] = { ...q, active: true, frozen: false, timeRemaining: QUEEN_INITIAL_DECAY_TIME, square: movedTo, count: 1 }
         } else if (q.active && !q.frozen) {
+          // Queen already has active timer - add time
           next[activeColor] = {
             ...q,
             count: q.count + 1,
             timeRemaining: Math.min(QUEEN_INITIAL_DECAY_TIME, q.timeRemaining + DECAY_INCREMENT),
             square: movedTo,
           }
+        } else if (q.frozen) {
+          // This queen was previously frozen (original queen lost, this is a promoted queen moving)
+          // Reset and start fresh timer for the new/promoted queen
+          next[activeColor] = { active: true, frozen: false, timeRemaining: QUEEN_INITIAL_DECAY_TIME, square: movedTo, count: 1 }
         }
       }
 
@@ -374,9 +455,9 @@ export default function DecayOffline() {
     if (frozen) { borderColor = '#ef4444'; borderWidth = 2 }
 
     return (
-      <View key={square} style={{ position: 'relative' }}>
+      <View key={square} style={{ position: 'relative', overflow: 'visible' }}>
         <TouchableOpacity
-          style={[variantStyles.square, { width: squareSize, height: squareSize, backgroundColor: isLight ? '#F0D9B5' : '#769656', borderWidth, borderColor }]}
+          style={[variantStyles.square, { width: squareSize, height: squareSize, backgroundColor: isLight ? '#F0D9B5' : '#769656', borderWidth, borderColor, overflow: 'visible' }]}
           onPress={() => handleSquarePress(square)}
         >
           {decayBadge}

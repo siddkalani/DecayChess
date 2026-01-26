@@ -41,11 +41,15 @@ export const decayStyles = StyleSheet.create({
     elevation: 8,
     // Ensure the board is perfectly centered
     alignSelf: "center",
+    // Add padding to prevent timer badge clipping on 8th rank
+    paddingTop: 20,
+    paddingBottom: 4,
+    overflow: "visible",
   },
   board: {
     flexDirection: "column",
     borderRadius: 4,
-    overflow: "hidden",
+    overflow: "visible",
     borderWidth: 2,
     borderColor: "#4a4a4a",
     width: boardSize,
@@ -54,12 +58,14 @@ export const decayStyles = StyleSheet.create({
   row: {
     flexDirection: "row",
     flex: 1,
+    overflow: "visible",
   },
   square: {
     justifyContent: "center",
     alignItems: "center",
     position: "relative",
     flex: 1,
+    overflow: "visible",
   },
   playerInfoContainer: {
    
